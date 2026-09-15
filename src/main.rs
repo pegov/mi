@@ -12,6 +12,7 @@ use mi::{
     completions::{Answer, FinishReason},
     credits, image,
     printer::{self, Printer},
+    skill::{format_skills, parse_skills},
     tool::{self, Tool},
     xdg::must_parse_config,
 };
@@ -24,8 +25,6 @@ use crossterm::{
 };
 use time::OffsetDateTime;
 use time::macros::format_description;
-
-const SYSTEM_PROMPT: &str = "";
 
 fn cursor(session: &credits::Session) -> String {
     format!(
@@ -46,6 +45,16 @@ fn run_chat(
     } else {
         credits::Session::default()
     };
+
+    let mut system_prompt = String::new();
+
+    let skills = parse_skills()?;
+    if !skills.is_empty() {
+        if !system_prompt.is_empty() {
+            system_prompt.push_str("\n\n");
+        }
+        system_prompt.push_str(&format_skills(&skills));
+    }
 
     let read_tool = tool::Read;
     let write_tool = tool::WriteTool;
@@ -167,7 +176,7 @@ fn run_chat(
         provider,
         Some("low".into()),
         tools,
-        SYSTEM_PROMPT,
+        &system_prompt,
         &user_prompt,
     );
 

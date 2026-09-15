@@ -4,6 +4,9 @@ use std::{
 };
 
 use serde::Deserialize;
+use walkdir::WalkDir;
+
+use crate::xdg::must_skills_dir;
 
 pub struct Skill {
     pub base_path: PathBuf,
@@ -49,6 +52,15 @@ impl Skill {
 
         Ok(Skill::new(skill_parsed, dir_path.to_owned()))
     }
+
+    fn format(&self) -> String {
+        format!(
+            "- [{}] {}: {}",
+            self.base_path.to_string_lossy(),
+            self.name,
+            self.description,
+        )
+    }
 }
 
 fn parse_skill_str(skill_str: &str) -> anyhow::Result<SkillParsed> {
@@ -65,6 +77,31 @@ fn parse_skill_str(skill_str: &str) -> anyhow::Result<SkillParsed> {
     let body = &start[end_pos + 4..].trim();
 
     Ok(SkillParsed::new(yaml, body.to_string()))
+}
+
+pub fn parse_skills() -> anyhow::Result<Vec<Skill>> {
+    WalkDir::new(must_skills_dir())
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_dir())
+        .filter(|e| e.path().join(SKILL_MD).is_file())
+        .map(|e| e.into_path())
+        .map(|dir| Skill::from_dir(&dir))
+        .collect()
+}
+
+pub fn format_skills(skills: &[Skill]) -> String {
+    assert!(!skills.is_empty());
+
+    let skills_format = skills
+        .iter()
+        .map(|s| s.format())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        "Available skills:\n\n{skills_format}\n\nIf a user request matches any skill descriptions, load it first using `<base_path>/SKILL.md`."
+    )
 }
 
 #[cfg(test)]

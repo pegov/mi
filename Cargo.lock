@@ -911,6 +911,7 @@ dependencies = [
  "serde_yaml",
  "similar",
  "time",
+ "walkdir",
 ]
 
 [[package]]

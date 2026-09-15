@@ -26,6 +26,14 @@ fn must_config_dir() -> PathBuf {
     .join("mi")
 }
 
+pub fn must_skills_dir() -> PathBuf {
+    env::home_dir()
+        .unwrap()
+        .join(".agents")
+        .join("skills")
+        .into()
+}
+
 pub fn must_parse_config() -> Config {
     let config_path = must_config_dir().join("config.json");
     let config_str = fs::read_to_string(&config_path).unwrap();
