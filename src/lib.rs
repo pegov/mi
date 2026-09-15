@@ -1,0 +1,10 @@
+pub mod assembler;
+pub mod chat;
+pub mod cmd;
+pub mod completions;
+pub mod credits;
+pub mod image;
+pub mod printer;
+pub mod skill;
+pub mod tool;
+pub mod xdg;
