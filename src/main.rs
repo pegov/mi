@@ -99,75 +99,28 @@ fn copy_user_prompt_to_clipboard(user_prompt: &str) -> anyhow::Result<()> {
     anyhow::bail!("failed to copy prompt")
 }
 
-fn run_chat(
-    preset: OpenRouterPreset,
-    credits_gateway: Option<&str>,
-    chat_gateway: &str,
-) -> anyhow::Result<()> {
-    let mut session = if let Some(credits_gateway) = credits_gateway {
-        let credits = credits::get_credits(credits_gateway)?;
-        credits::Session::from(&credits)
-    } else {
-        credits::Session::default()
-    };
+enum HandleEventsAction {
+    None,
+    Exit,
+}
 
-    let mut system_prompt = String::new();
-
-    let skills = parse_skills()?;
-    let mut skills_to_prompt = Vec::with_capacity(skills.len());
-    for skill in skills.iter() {
-        if skill.disable_model_invocation {
-            continue;
-        }
-        skills_to_prompt.push(skill.clone());
-    }
-    if !skills_to_prompt.is_empty() {
-        if !system_prompt.is_empty() {
-            system_prompt.push_str("\n\n");
-        }
-        system_prompt.push_str(&format_skills(&skills_to_prompt));
-    }
-
-    system_prompt.push_str("\n");
-    system_prompt.push_str(
-        "If the skill is not in the system prompt, then it is not available for auto-discovery! Do not try to find it! If you don't have the skill, do not make up the logic for this action and immediately tell the user that you don't have the skill and information about it.",
-    );
-
-    let read_tool = tool::Read;
-    let write_tool = tool::WriteTool;
-    let edit_tool = tool::EditTool;
-    let bash_tool = tool::BashTool;
-    let tools = Some(vec![
-        read_tool.json(),
-        write_tool.json(),
-        edit_tool.json(),
-        bash_tool.json(),
-    ]);
-
-    let mut tool_map: HashMap<String, Box<dyn Tool>> = HashMap::new();
-    tool_map.insert(read_tool.name().to_owned(), Box::new(read_tool));
-    tool_map.insert(write_tool.name().to_owned(), Box::new(write_tool));
-    tool_map.insert(edit_tool.name().to_owned(), Box::new(edit_tool));
-    tool_map.insert(bash_tool.name().to_owned(), Box::new(bash_tool));
-
-    std::io::stdout().write_all(cursor(&session).as_bytes())?;
-    std::io::stdout().flush()?;
-
-    let mut stdout = std::io::stdout();
+fn handle_events(
+    stdout: &mut io::Stdout,
+    user_prompt: &mut String,
+) -> anyhow::Result<HandleEventsAction> {
     enable_raw_mode()?;
     stdout.execute(event::PushKeyboardEnhancementFlags(
         event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
     ))?;
     stdout.execute(event::EnableBracketedPaste)?;
 
-    let mut user_prompt = String::new();
     loop {
         let event = event::read()?;
         if let Event::Key(key_event) = event {
             if key_event.code == KeyCode::Char('c')
                 && key_event.modifiers.contains(KeyModifiers::CONTROL)
             {
-                return Ok(());
+                return Ok(HandleEventsAction::Exit);
             }
 
             if key_event.code == KeyCode::Char('y')
@@ -247,11 +200,77 @@ fn run_chat(
             continue;
         }
     }
+
     disable_raw_mode()?;
     stdout.execute(event::PopKeyboardEnhancementFlags)?;
     stdout.execute(event::DisableBracketedPaste)?;
-    std::io::stdout().write_all("\n".as_bytes())?;
-    std::io::stdout().flush()?;
+    stdout.write_all("\n".as_bytes())?;
+    stdout.flush()?;
+
+    return Ok(HandleEventsAction::None);
+}
+
+fn run_chat(
+    preset: OpenRouterPreset,
+    credits_gateway: Option<&str>,
+    chat_gateway: &str,
+) -> anyhow::Result<()> {
+    let mut session = if let Some(credits_gateway) = credits_gateway {
+        let credits = credits::get_credits(credits_gateway)?;
+        credits::Session::from(&credits)
+    } else {
+        credits::Session::default()
+    };
+
+    let mut system_prompt = String::new();
+
+    let skills = parse_skills()?;
+    let mut skills_to_prompt = Vec::with_capacity(skills.len());
+    for skill in skills.iter() {
+        if skill.disable_model_invocation {
+            continue;
+        }
+        skills_to_prompt.push(skill.clone());
+    }
+    if !skills_to_prompt.is_empty() {
+        if !system_prompt.is_empty() {
+            system_prompt.push_str("\n\n");
+        }
+        system_prompt.push_str(&format_skills(&skills_to_prompt));
+    }
+
+    system_prompt.push_str("\n");
+    system_prompt.push_str(
+        "If the skill is not in the system prompt, then it is not available for auto-discovery! Do not try to find it! If you don't have the skill, do not make up the logic for this action and immediately tell the user that you don't have the skill and information about it.",
+    );
+
+    let read_tool = tool::Read;
+    let write_tool = tool::WriteTool;
+    let edit_tool = tool::EditTool;
+    let bash_tool = tool::BashTool;
+    let tools = Some(vec![
+        read_tool.json(),
+        write_tool.json(),
+        edit_tool.json(),
+        bash_tool.json(),
+    ]);
+
+    let mut tool_map: HashMap<String, Box<dyn Tool>> = HashMap::new();
+    tool_map.insert(read_tool.name().to_owned(), Box::new(read_tool));
+    tool_map.insert(write_tool.name().to_owned(), Box::new(write_tool));
+    tool_map.insert(edit_tool.name().to_owned(), Box::new(edit_tool));
+    tool_map.insert(bash_tool.name().to_owned(), Box::new(bash_tool));
+
+    let mut stdout = std::io::stdout();
+
+    stdout.write_all(cursor(&session).as_bytes())?;
+    stdout.flush()?;
+
+    let mut user_prompt = String::new();
+    match handle_events(&mut stdout, &mut user_prompt)? {
+        HandleEventsAction::None => {}
+        HandleEventsAction::Exit => return Ok(()),
+    }
 
     let mut printer = Printer::default();
 
@@ -410,111 +429,14 @@ fn run_chat(
         printer.show_cursor()?;
         printer.reset()?;
 
-        std::io::stdout().write_all(cursor(&session).as_bytes())?;
-        std::io::stdout().flush()?;
-
-        let mut stdout = std::io::stdout();
-        enable_raw_mode()?;
-        stdout.execute(event::PushKeyboardEnhancementFlags(
-            event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-        ))?;
-        stdout.execute(event::EnableBracketedPaste)?;
+        stdout.write_all(cursor(&session).as_bytes())?;
+        stdout.flush()?;
 
         let mut user_prompt = String::new();
-        loop {
-            let event = event::read()?;
-            if let Event::Key(key_event) = event {
-                if key_event.code == KeyCode::Char('c')
-                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
-                {
-                    return Ok(());
-                }
-
-                if key_event.code == KeyCode::Char('y')
-                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
-                {
-                    copy_user_prompt_to_clipboard(&user_prompt)?;
-                    continue;
-                }
-
-                if key_event.code == KeyCode::Enter
-                    && key_event.modifiers.contains(KeyModifiers::SHIFT)
-                {
-                    user_prompt.push('\n');
-                    write!(stdout, "\r\n")?;
-                    stdout.flush()?;
-                    continue;
-                }
-
-                if key_event.code == KeyCode::Enter {
-                    break;
-                }
-
-                if key_event.code == KeyCode::Backspace {
-                    if !user_prompt.is_empty() {
-                        if user_prompt.ends_with('\n') {
-                            user_prompt.pop();
-                            let total_lines = user_prompt.lines().count();
-                            let last_line_len =
-                                user_prompt.lines().last().unwrap_or("").len() as u16;
-                            stdout.queue(cursor::MoveUp(1))?;
-                            if total_lines <= 1 {
-                                stdout.queue(cursor::MoveToColumn(last_line_len + 2))?;
-                            } else {
-                                stdout.queue(cursor::MoveToColumn(last_line_len))?;
-                            }
-                        } else {
-                            user_prompt.pop();
-                            write!(stdout, "\x08 \x08")?;
-                        }
-                        stdout.flush()?;
-                    }
-                    continue;
-                }
-
-                if key_event.modifiers.is_empty() {
-                    if let KeyCode::Char(c) = key_event.code {
-                        user_prompt.push(c);
-                        write!(stdout, "{}", c)?;
-                        stdout.flush()?;
-                    }
-                    continue;
-                }
-
-                if key_event.modifiers.contains(KeyModifiers::SHIFT) {
-                    if let KeyCode::Char(c) = key_event.code {
-                        let up = c.to_uppercase().to_string();
-                        user_prompt.push_str(&up);
-                        write!(stdout, "{}", &up)?;
-                        stdout.flush()?;
-                    }
-                    continue;
-                }
-            }
-
-            if let Event::Paste(s) = event {
-                for c in s.chars() {
-                    match c {
-                        '\n' => {
-                            user_prompt.push('\n');
-                            write!(stdout, "\r\n")?;
-                            stdout.flush()?;
-                        }
-                        _ => {
-                            user_prompt.push(c);
-                            write!(stdout, "{}", c)?;
-                            stdout.flush()?;
-                        }
-                    }
-                }
-                continue;
-            }
-        }
-        disable_raw_mode()?;
-        stdout.execute(event::PopKeyboardEnhancementFlags)?;
-        stdout.execute(event::EnableBracketedPaste)?;
-        std::io::stdout().write_all("\n".as_bytes())?;
-        std::io::stdout().flush()?;
+        match handle_events(&mut stdout, &mut user_prompt)? {
+            HandleEventsAction::None => {}
+            HandleEventsAction::Exit => return Ok(()),
+        };
         if user_prompt == "" {
             break;
         } else {
