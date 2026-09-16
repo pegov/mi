@@ -8,10 +8,12 @@ use walkdir::WalkDir;
 
 use crate::xdg::must_skills_dir;
 
+#[derive(Debug)]
 pub struct Skill {
     pub base_path: PathBuf,
     pub name: String,
     pub description: String,
+    pub disable_model_invocation: bool,
     pub body: String,
 }
 
@@ -19,6 +21,8 @@ pub struct Skill {
 struct SkillYaml {
     name: String,
     description: String,
+    #[serde(rename = "disable-model-invocation", default)]
+    disable_model_invocation: bool,
 }
 
 struct SkillParsed {
@@ -40,6 +44,7 @@ impl Skill {
             base_path,
             name: skill_parsed.yaml.name,
             description: skill_parsed.yaml.description,
+            disable_model_invocation: skill_parsed.yaml.disable_model_invocation,
             body: skill_parsed.body,
         }
     }

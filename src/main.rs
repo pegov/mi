@@ -49,11 +49,18 @@ fn run_chat(
     let mut system_prompt = String::new();
 
     let skills = parse_skills()?;
-    if !skills.is_empty() {
+    let mut skills_to_prompt = Vec::with_capacity(skills.len());
+    for skill in skills {
+        if skill.disable_model_invocation {
+            continue;
+        }
+        skills_to_prompt.push(skill);
+    }
+    if !skills_to_prompt.is_empty() {
         if !system_prompt.is_empty() {
             system_prompt.push_str("\n\n");
         }
-        system_prompt.push_str(&format_skills(&skills));
+        system_prompt.push_str(&format_skills(&skills_to_prompt));
     }
 
     let read_tool = tool::Read;
