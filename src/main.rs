@@ -422,7 +422,8 @@ fn run_chat(
 
         let mut user_prompt = String::new();
         loop {
-            if let Event::Key(key_event) = event::read()? {
+            let event = event::read()?;
+            if let Event::Key(key_event) = event {
                 if key_event.code == KeyCode::Char('c')
                     && key_event.modifiers.contains(KeyModifiers::CONTROL)
                 {
@@ -489,6 +490,24 @@ fn run_chat(
                     }
                     continue;
                 }
+            }
+
+            if let Event::Paste(s) = event {
+                for c in s.chars() {
+                    match c {
+                        '\n' => {
+                            user_prompt.push('\n');
+                            write!(stdout, "\r\n")?;
+                            stdout.flush()?;
+                        }
+                        _ => {
+                            user_prompt.push(c);
+                            write!(stdout, "{}", c)?;
+                            stdout.flush()?;
+                        }
+                    }
+                }
+                continue;
             }
         }
         disable_raw_mode()?;
