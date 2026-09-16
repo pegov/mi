@@ -1,10 +1,12 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{self, BufRead, BufReader, BufWriter, Write},
+    process::{Command, Stdio},
     time::Duration,
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mi::{
     assembler::Assembler,
     chat,
@@ -60,6 +62,41 @@ fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
     } else {
         None
     }
+}
+
+fn copy_via_osc52(text: &str) -> io::Result<()> {
+    let mut stdout = io::stdout();
+    let encoded = STANDARD.encode(text);
+
+    write!(stdout, "\x1b]52;c;{}\x07", encoded)?;
+    stdout.flush()?;
+    Ok(())
+}
+
+fn copy_via_xclip(user_prompt: &str) -> anyhow::Result<()> {
+    let mut cmd = Command::new("xclip")
+        .args(&["-selection", "clipboard"])
+        .stdin(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = cmd.stdin.take() {
+        stdin.write_all(user_prompt.as_bytes())?
+    }
+
+    cmd.wait()?;
+    Ok(())
+}
+
+fn copy_user_prompt_to_clipboard(user_prompt: &str) -> anyhow::Result<()> {
+    if copy_via_xclip(user_prompt).is_ok() {
+        return Ok(());
+    }
+
+    if copy_via_osc52(user_prompt).is_ok() {
+        return Ok(());
+    }
+
+    anyhow::bail!("failed to copy prompt")
 }
 
 fn run_chat(
@@ -131,6 +168,13 @@ fn run_chat(
                 && key_event.modifiers.contains(KeyModifiers::CONTROL)
             {
                 return Ok(());
+            }
+
+            if key_event.code == KeyCode::Char('y')
+                && key_event.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                copy_user_prompt_to_clipboard(&user_prompt)?;
+                continue;
             }
 
             if key_event.code == KeyCode::Enter && key_event.modifiers.contains(KeyModifiers::SHIFT)
@@ -383,6 +427,13 @@ fn run_chat(
                     && key_event.modifiers.contains(KeyModifiers::CONTROL)
                 {
                     return Ok(());
+                }
+
+                if key_event.code == KeyCode::Char('y')
+                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    copy_user_prompt_to_clipboard(&user_prompt)?;
+                    continue;
                 }
 
                 if key_event.code == KeyCode::Enter
