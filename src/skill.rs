@@ -8,9 +8,10 @@ use walkdir::WalkDir;
 
 use crate::xdg::must_skills_dir;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Skill {
     pub base_path: PathBuf,
+    pub full: String,
     pub name: String,
     pub description: String,
     pub disable_model_invocation: bool,
@@ -26,13 +27,14 @@ struct SkillYaml {
 }
 
 struct SkillParsed {
+    full: String,
     yaml: SkillYaml,
     body: String,
 }
 
 impl SkillParsed {
-    fn new(yaml: SkillYaml, body: String) -> Self {
-        Self { yaml, body }
+    fn new(full: String, yaml: SkillYaml, body: String) -> Self {
+        Self { full, yaml, body }
     }
 }
 
@@ -42,6 +44,7 @@ impl Skill {
     fn new(skill_parsed: SkillParsed, base_path: PathBuf) -> Self {
         Self {
             base_path,
+            full: skill_parsed.full,
             name: skill_parsed.yaml.name,
             description: skill_parsed.yaml.description,
             disable_model_invocation: skill_parsed.yaml.disable_model_invocation,
@@ -81,7 +84,11 @@ fn parse_skill_str(skill_str: &str) -> anyhow::Result<SkillParsed> {
     let yaml: SkillYaml = serde_yaml::from_str(yaml_str)?;
     let body = &start[end_pos + 4..].trim();
 
-    Ok(SkillParsed::new(yaml, body.to_string()))
+    Ok(SkillParsed::new(
+        skill_str.to_owned(),
+        yaml,
+        body.to_string(),
+    ))
 }
 
 pub fn parse_skills() -> anyhow::Result<Vec<Skill>> {

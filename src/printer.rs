@@ -64,6 +64,10 @@ impl Printer {
         Ok(())
     }
 
+    pub fn skill(&mut self, skill_name: &str) -> anyhow::Result<()> {
+        self.tool("skill", skill_name)
+    }
+
     pub fn print(&mut self, mode: Mode, content: &str) -> anyhow::Result<()> {
         let mut stdout = std::io::stdout().lock();
 

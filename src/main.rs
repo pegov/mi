@@ -12,7 +12,7 @@ use mi::{
     completions::{Answer, FinishReason},
     credits, image,
     printer::{self, Printer},
-    skill::{format_skills, parse_skills},
+    skill::{Skill, format_skills, parse_skills},
     tool::{self, Tool},
     xdg::must_parse_config,
 };
@@ -34,6 +34,34 @@ fn cursor(session: &credits::Session) -> String {
     )
 }
 
+fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option<String> {
+    for skill in skills {
+        if skill.name != name {
+            continue;
+        }
+
+        if args != "" {
+            return Some(format!(
+                "[Manual skill invocation]\nAuto-inserting SKILL.md text:\n{}\nARGUMENTS: {}",
+                skill.full.trim(),
+                args.trim()
+            ));
+        } else {
+            return Some(skill.full.clone());
+        }
+    }
+
+    None
+}
+
+fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
+    if let Some(rest) = prompt.trim().strip_prefix("/skill:") {
+        rest.split_once(" ")
+    } else {
+        None
+    }
+}
+
 fn run_chat(
     preset: OpenRouterPreset,
     credits_gateway: Option<&str>,
@@ -50,11 +78,11 @@ fn run_chat(
 
     let skills = parse_skills()?;
     let mut skills_to_prompt = Vec::with_capacity(skills.len());
-    for skill in skills {
+    for skill in skills.iter() {
         if skill.disable_model_invocation {
             continue;
         }
-        skills_to_prompt.push(skill);
+        skills_to_prompt.push(skill.clone());
     }
     if !skills_to_prompt.is_empty() {
         if !system_prompt.is_empty() {
@@ -62,6 +90,11 @@ fn run_chat(
         }
         system_prompt.push_str(&format_skills(&skills_to_prompt));
     }
+
+    system_prompt.push_str("\n");
+    system_prompt.push_str(
+        "If the skill is not in the system prompt, then it is not available for auto-discovery! Do not try to find it! If you don't have the skill, do not make up the logic for this action and immediately tell the user that you don't have the skill and information about it.",
+    );
 
     let read_tool = tool::Read;
     let write_tool = tool::WriteTool;
@@ -176,7 +209,19 @@ fn run_chat(
     std::io::stdout().write_all("\n".as_bytes())?;
     std::io::stdout().flush()?;
 
+    let mut printer = Printer::default();
+
     let (model, provider) = (preset.model(), preset.provider());
+
+    if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
+        if let Some(res) = manually_invoke_skill(&skills, name, args) {
+            printer.skill(name)?;
+            user_prompt = res;
+        } else {
+            user_prompt.push_str("\n");
+            user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
+        }
+    }
 
     let mut chat = chat::Chat::new(
         model,
@@ -186,8 +231,6 @@ fn run_chat(
         &system_prompt,
         &user_prompt,
     );
-
-    let mut printer = Printer::default();
 
     loop {
         loop {
@@ -405,6 +448,15 @@ fn run_chat(
         if user_prompt == "" {
             break;
         } else {
+            if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
+                if let Some(res) = manually_invoke_skill(&skills, name, args) {
+                    printer.skill(name)?;
+                    user_prompt = res;
+                } else {
+                    user_prompt.push_str("\n");
+                    user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
+                }
+            }
             let sm = chat::SimpleMessage::new(&user_prompt);
             chat.messages.push(chat::Message::User(sm));
         }
