@@ -13,7 +13,7 @@ use mi::{
     cmd::{self, Cli, OpenRouterPreset},
     completions::{Answer, FinishReason},
     credits, image,
-    printer::{self, Printer},
+    printer::{self, Cursor, Printer},
     skill::{Skill, format_skills, parse_skills},
     tool::{self, Tool},
     xdg::must_parse_config,
@@ -27,14 +27,6 @@ use crossterm::{
 };
 use time::OffsetDateTime;
 use time::macros::format_description;
-
-fn cursor(session: &credits::Session) -> String {
-    format!(
-        "SESS: {} | REMN: {}\n> ",
-        session.delta_string(),
-        session.remaining_string()
-    )
-}
 
 fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option<String> {
     for skill in skills {
@@ -222,6 +214,8 @@ fn run_chat(
         credits::Session::default()
     };
 
+    let cursor = Cursor::new();
+
     let mut system_prompt = String::new();
 
     let skills = parse_skills()?;
@@ -263,7 +257,7 @@ fn run_chat(
 
     let mut stdout = std::io::stdout();
 
-    stdout.write_all(cursor(&session).as_bytes())?;
+    stdout.write_all(cursor.to_string(&session).as_bytes())?;
     stdout.flush()?;
 
     let mut user_prompt = String::new();
@@ -429,7 +423,7 @@ fn run_chat(
         printer.show_cursor()?;
         printer.reset()?;
 
-        stdout.write_all(cursor(&session).as_bytes())?;
+        stdout.write_all(cursor.to_string(&session).as_bytes())?;
         stdout.flush()?;
 
         let mut user_prompt = String::new();

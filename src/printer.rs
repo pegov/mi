@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use crate::credits;
+
 #[derive(Clone, Default, PartialEq)]
 pub enum Mode {
     #[default]
@@ -33,6 +35,22 @@ pub const ANSI_COLOR_37: &str = "\x1b[38;5;37m";
 pub const ANSI_TOOL: &str = ANSI_COLOR_37;
 pub const ANSI_HIDE_CURSOR: &str = "\x1b[?25l";
 pub const ANSI_SHOW_CURSOR: &str = "\x1b[?25h";
+
+pub struct Cursor {}
+
+impl Cursor {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    pub fn to_string(&self, session: &credits::Session) -> String {
+        format!(
+            "SESS: {} | REMN: {}\n> ",
+            session.delta_string(),
+            session.remaining_string()
+        )
+    }
+}
 
 impl Printer {
     pub fn set_mode(&mut self, mode: Mode) {
