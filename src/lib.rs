@@ -1,4 +1,5 @@
 pub mod assembler;
+pub mod chan;
 pub mod chat;
 pub mod cmd;
 pub mod completions;

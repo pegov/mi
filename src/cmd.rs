@@ -32,6 +32,7 @@ pub enum Command {
         #[arg(long, num_args = 1..)]
         input_reference_path: Vec<String>,
     },
+    Chan,
 }
 
 #[derive(Clone, Debug, Default, ValueEnum)]

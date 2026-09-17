@@ -9,7 +9,7 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mi::{
     assembler::Assembler,
-    chat,
+    chan, chat,
     cmd::{self, Cli, OpenRouterPreset},
     completions::{Answer, FinishReason},
     credits, image,
@@ -531,6 +531,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 &input_reference_path,
             )?;
         }
+        cmd::Command::Chan => chan::chan()?,
     }
 
     Ok(())
