@@ -14,6 +14,8 @@ pub enum Command {
     OpenRouter {
         #[arg(short, long, value_enum, default_value_t = OpenRouterPreset::DeepSeek)]
         preset: OpenRouterPreset,
+        #[arg(short, long, value_enum, default_value_t = OpenRouterReasoning::Low)]
+        reasoning: OpenRouterReasoning,
     },
     #[command(name = "image-gen")]
     ImageGen {
@@ -86,6 +88,30 @@ impl OpenRouterPreset {
         match *self {
             Self::OpenAILuna => Some("flex".to_string()),
             _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, ValueEnum)]
+pub enum OpenRouterReasoning {
+    #[value(name = "none")]
+    None,
+    #[default]
+    #[value(name = "low")]
+    Low,
+    #[value(name = "medium")]
+    Medium,
+    #[value(name = "high")]
+    High,
+}
+
+impl OpenRouterReasoning {
+    pub fn as_str(&self) -> &str {
+        match *self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
         }
     }
 }

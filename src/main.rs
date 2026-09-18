@@ -10,7 +10,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mi::{
     assembler::Assembler,
     chan, chat,
-    cmd::{self, Cli, OpenRouterPreset},
+    cmd::{self, Cli, OpenRouterPreset, OpenRouterReasoning},
     completions::{Answer, FinishReason},
     credits, image, jev,
     printer::{self, Cursor, Printer},
@@ -204,6 +204,7 @@ fn handle_events(
 
 fn run_chat(
     preset: OpenRouterPreset,
+    reasoning_effort: OpenRouterReasoning,
     credits_gateway: Option<&str>,
     chat_gateway: &str,
 ) -> anyhow::Result<()> {
@@ -285,7 +286,7 @@ fn run_chat(
         model,
         provider,
         service_tier,
-        Some("low".into()),
+        Some(reasoning_effort.as_str().into()),
         tools,
         &system_prompt,
         &user_prompt,
@@ -500,10 +501,15 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
-            run_chat(OpenRouterPreset::None, None, &chat_completions_url)?;
+            run_chat(
+                OpenRouterPreset::None,
+                OpenRouterReasoning::None,
+                None,
+                &chat_completions_url,
+            )?;
         }
-        cmd::Command::OpenRouter { preset } => {
-            dbg!(&preset);
+        cmd::Command::OpenRouter { preset, reasoning } => {
+            dbg!(&preset, &reasoning);
             let base_url = config.openrouter.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
             let credits_url = format!("{base_url}/credits");
@@ -513,7 +519,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            run_chat(preset, Some(&credits_url), &chat_completions_url)?
+            run_chat(preset, reasoning, Some(&credits_url), &chat_completions_url)?
         }
         cmd::Command::ImageGen {
             model,
