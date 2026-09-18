@@ -268,7 +268,8 @@ fn run_chat(
 
     let mut printer = Printer::default();
 
-    let (model, provider) = (preset.model(), preset.provider());
+    let (model, provider, service_tier) =
+        (preset.model(), preset.provider(), preset.service_tier());
 
     if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
         if let Some(res) = manually_invoke_skill(&skills, name, args) {
@@ -283,6 +284,7 @@ fn run_chat(
     let mut chat = chat::Chat::new(
         model,
         provider,
+        service_tier,
         Some("low".into()),
         tools,
         &system_prompt,

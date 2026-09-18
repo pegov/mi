@@ -44,6 +44,8 @@ pub enum OpenRouterPreset {
     DeepSeek,
     #[value(name = "glm-flash")]
     GlmFlash,
+    #[value(name = "luna")]
+    OpenAILuna,
 }
 
 impl OpenRouterPreset {
@@ -52,6 +54,7 @@ impl OpenRouterPreset {
             Self::None => "none",
             Self::DeepSeek => "deepseek/deepseek-v4.1-flash",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
+            Self::OpenAILuna => "openai/gpt-5.6-luna",
         }
     }
 
@@ -70,6 +73,19 @@ impl OpenRouterPreset {
                 "allow_fallbacks": false
             }
             )),
+            Self::OpenAILuna => Some(serde_json::json!(
+            {
+                "order": ["openai/flex"],
+                "allow_fallbacks": false
+            }
+            )),
+        }
+    }
+
+    pub fn service_tier(&self) -> Option<String> {
+        match *self {
+            Self::OpenAILuna => Some("flex".to_string()),
+            _ => None,
         }
     }
 }

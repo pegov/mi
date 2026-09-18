@@ -9,6 +9,8 @@ const TOOL_CHOICE_AUTO: &str = "auto";
 pub struct Chat {
     model: String,
     providers: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service_tier: Option<String>,
     reasoning_effort: Option<String>,
     tools: Option<Vec<serde_json::Value>>,
     tool_choice: &'static str,
@@ -20,6 +22,7 @@ impl Chat {
     pub fn new(
         model: &str,
         providers: Option<serde_json::Value>,
+        service_tier: Option<String>,
         reasoning_effort: Option<String>,
         tools: Option<Vec<serde_json::Value>>,
         system: &str,
@@ -31,6 +34,7 @@ impl Chat {
         Self {
             model: model.into(),
             providers,
+            service_tier,
             reasoning_effort,
             tools,
             tool_choice: TOOL_CHOICE_AUTO,
