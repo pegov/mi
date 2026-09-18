@@ -10,7 +10,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Local,
-    #[command(name = "openrouter")]
+    #[command(name = "openrouter", alias = "or")]
     OpenRouter {
         #[arg(short, long, value_enum, default_value_t = OpenRouterPreset::DeepSeek)]
         preset: OpenRouterPreset,
