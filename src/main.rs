@@ -12,7 +12,7 @@ use mi::{
     chan, chat,
     cmd::{self, Cli, OpenRouterPreset},
     completions::{Answer, FinishReason},
-    credits, image,
+    credits, image, jev,
     printer::{self, Cursor, Printer},
     skill::{Skill, format_skills, parse_skills},
     tool::{self, Tool},
@@ -532,6 +532,10 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             )?;
         }
         cmd::Command::Chan => chan::chan()?,
+        cmd::Command::Jev => {
+            let url = config.jev.url;
+            jev::jev(&url)?;
+        }
     }
 
     Ok(())

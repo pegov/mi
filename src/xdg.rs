@@ -6,6 +6,7 @@ use serde::Deserialize;
 pub struct Config {
     pub local: LocalConfig,
     pub openrouter: OpenRouterConfig,
+    pub jev: JevConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -16,6 +17,11 @@ pub struct LocalConfig {
 #[derive(Debug, Deserialize)]
 pub struct OpenRouterConfig {
     pub base_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JevConfig {
+    pub url: String,
 }
 
 fn must_config_dir() -> PathBuf {

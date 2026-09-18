@@ -5,6 +5,7 @@ pub mod cmd;
 pub mod completions;
 pub mod credits;
 pub mod image;
+pub mod jev;
 pub mod printer;
 pub mod skill;
 pub mod tool;
