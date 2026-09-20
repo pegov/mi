@@ -347,6 +347,9 @@ fn run_chat(
                                     usage.completion_tokens,
                                     usage.prompt_tokens_details.cached_tokens,
                                 );
+                                if let Some(cost) = usage.cost {
+                                    session.save_cost(cost);
+                                }
                             }
 
                             let Some(choice) = v.choices.first() else {

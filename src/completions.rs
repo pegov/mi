@@ -132,6 +132,8 @@ pub struct Usage {
     pub prompt_tokens: u64,
     pub total_tokens: u64,
     #[serde(default)]
+    pub cost: Option<f64>,
+    #[serde(default)]
     pub prompt_tokens_details: PromptTokensDetails,
 }
 

@@ -37,8 +37,12 @@ impl Session {
         self.cache_tokens = self.cache_tokens.saturating_add(cache);
     }
 
+    pub fn save_cost(&mut self, cost: f64) {
+        self.curr_balance = self.curr_balance - cost;
+    }
+
     pub fn update(&mut self, credits: &Credits) {
-        self.curr_balance = credits.remaining;
+        self.curr_balance = self.curr_balance.min(credits.remaining);
     }
 
     pub fn delta_string(&self) -> String {
