@@ -15,6 +15,9 @@ struct CreditsResponse {
 pub struct Session {
     pub start_balance: f64,
     pub curr_balance: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_tokens: u64,
 }
 
 impl Session {
@@ -22,7 +25,16 @@ impl Session {
         Self {
             start_balance,
             curr_balance: start_balance,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_tokens: 0,
         }
+    }
+
+    pub fn save_tokens(&mut self, input: u64, output: u64, cache: u64) {
+        self.input_tokens = self.input_tokens.saturating_add(input);
+        self.output_tokens = self.output_tokens.saturating_add(output);
+        self.cache_tokens = self.cache_tokens.saturating_add(cache);
     }
 
     pub fn update(&mut self, credits: &Credits) {

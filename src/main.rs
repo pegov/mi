@@ -341,9 +341,19 @@ fn run_chat(
 
                     match serde_json::from_str::<Answer>(data) {
                         Ok(v) => {
+                            if let Some(ref usage) = v.usage {
+                                session.save_tokens(
+                                    usage.prompt_tokens,
+                                    usage.completion_tokens,
+                                    usage.prompt_tokens_details.cached_tokens,
+                                );
+                            }
+
                             a.push_delta(&v);
 
-                            let choice = &v.choices[0];
+                            let Some(choice) = v.choices.first() else {
+                                continue;
+                            };
 
                             if let Some(ref reasoning) = choice.delta.reasoning {
                                 if !reasoning.is_empty() {
@@ -361,7 +371,6 @@ fn run_chat(
                                 match finish_reason {
                                     FinishReason::Stop => {
                                         printer.new_line()?;
-                                        break;
                                     }
                                     FinishReason::ToolCalls => {
                                         printer.new_line()?;

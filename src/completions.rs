@@ -131,4 +131,13 @@ pub struct Usage {
     pub completion_tokens: u64,
     pub prompt_tokens: u64,
     pub total_tokens: u64,
+    #[serde(default)]
+    pub prompt_tokens_details: PromptTokensDetails,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct PromptTokensDetails {
+    #[serde(default)]
+    pub cached_tokens: u64,
 }

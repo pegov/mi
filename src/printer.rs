@@ -47,9 +47,12 @@ impl Cursor {
 
     pub fn to_string(&self, session: &credits::Session) -> String {
         format!(
-            "SESS: {} | REMN: {} | 0 / {}\n> ",
+            "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT / {} MAX\n> ",
             session.delta_string(),
             session.remaining_string(),
+            session.input_tokens,
+            session.cache_tokens,
+            session.output_tokens,
             self.max_context,
         )
     }
