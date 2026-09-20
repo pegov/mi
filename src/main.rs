@@ -25,6 +25,7 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use reqwest::Url;
 use time::OffsetDateTime;
 use time::macros::format_description;
 
@@ -205,6 +206,7 @@ fn handle_events(
 fn run_chat(
     preset: OpenRouterPreset,
     reasoning_effort: OpenRouterReasoning,
+    max_context: u64,
     credits_gateway: Option<&str>,
     chat_gateway: &str,
 ) -> anyhow::Result<()> {
@@ -215,7 +217,7 @@ fn run_chat(
         credits::Session::default()
     };
 
-    let cursor = Cursor::new();
+    let cursor = Cursor::new(max_context);
 
     let mut system_prompt = String::new();
 
@@ -455,6 +457,52 @@ fn run_chat(
     Ok(())
 }
 
+fn get_max_context(url: &str, preset: &OpenRouterPreset) -> anyhow::Result<u64> {
+    let client = reqwest::blocking::ClientBuilder::default()
+        .timeout(Duration::from_secs(600))
+        .build()?;
+
+    let model_str = preset.model();
+    let provider = preset.provider().unwrap();
+    let provider = provider
+        .get("order")
+        .unwrap()
+        .get(0)
+        .unwrap()
+        .as_str()
+        .unwrap();
+
+    let url = Url::parse_with_params(url, &[("q", model_str), ("providers", provider)])?;
+    let response = client.get(url).send()?;
+    let status = response.status();
+    let body_text = response.text()?;
+
+    if !status.is_success() {
+        anyhow::bail!("API {} error: {}", status, body_text);
+    }
+
+    let body: serde_json::Value = serde_json::from_str(&body_text)
+        .map_err(|e| anyhow::anyhow!("invalid JSON: {} — body: {}", e, body_text))?;
+    let models = body["data"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
+
+    if models.is_empty() {
+        anyhow::bail!("no models returned by the API");
+    }
+
+    for model in models {
+        if model.get("id").unwrap() != model_str {
+            continue;
+        }
+
+        let context_length = model["context_length"].as_u64().unwrap();
+        return Ok(context_length);
+    }
+
+    anyhow::bail!("failed to find model");
+}
+
 fn reset_terminal() {
     print!("\x1b[0m");
     print!("\x1b[?25h");
@@ -504,6 +552,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             run_chat(
                 OpenRouterPreset::None,
                 OpenRouterReasoning::None,
+                0,
                 None,
                 &chat_completions_url,
             )?;
@@ -519,7 +568,16 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            run_chat(preset, reasoning, Some(&credits_url), &chat_completions_url)?
+            let models_url = format!("{base_url}/models");
+            let max_context = get_max_context(&models_url, &preset)?;
+
+            run_chat(
+                preset,
+                reasoning,
+                max_context,
+                Some(&credits_url),
+                &chat_completions_url,
+            )?
         }
         cmd::Command::ImageGen {
             model,
