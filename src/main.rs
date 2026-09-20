@@ -349,11 +349,11 @@ fn run_chat(
                                 );
                             }
 
-                            a.push_delta(&v);
-
                             let Some(choice) = v.choices.first() else {
                                 continue;
                             };
+
+                            a.push_delta(&v);
 
                             if let Some(ref reasoning) = choice.delta.reasoning {
                                 if !reasoning.is_empty() {
