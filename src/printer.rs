@@ -46,14 +46,22 @@ impl Cursor {
     }
 
     pub fn to_string(&self, session: &credits::Session) -> String {
+        let used_context_percentage = if self.max_context == 0 {
+            0.0
+        } else {
+            let total_tokens = session.input_tokens + session.output_tokens;
+            total_tokens as f64 * 100.0 / self.max_context as f64
+        };
+
         format!(
-            "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT / {} MAX\n> ",
+            "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT / {} MAX ({:.2}%)\n> ",
             session.delta_string(),
             session.remaining_string(),
             format_tokens_count(session.input_tokens),
             format_tokens_count(session.cache_tokens),
             format_tokens_count(session.output_tokens),
             format_tokens_count(self.max_context),
+            used_context_percentage,
         )
     }
 }
