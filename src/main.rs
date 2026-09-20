@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fs::File,
+    fs::{self, File},
     io::{self, BufRead, BufReader, BufWriter, Write},
     process::{Command, Stdio},
     time::Duration,
@@ -21,9 +21,11 @@ use mi::{
 
 use clap::Parser;
 use crossterm::{
-    ExecutableCommand, QueueableCommand, cursor,
+    ExecutableCommand, QueueableCommand,
+    cursor::{self, MoveToColumn, MoveUp},
     event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    queue,
+    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
 };
 use reqwest::Url;
 use time::OffsetDateTime;
@@ -92,6 +94,23 @@ fn copy_user_prompt_to_clipboard(user_prompt: &str) -> anyhow::Result<()> {
     anyhow::bail!("failed to copy prompt")
 }
 
+fn open_editor(user_prompt: &str) -> anyhow::Result<String> {
+    let temp_file = tempfile::NamedTempFile::new()?;
+    let temp_file_path = temp_file.path();
+
+    fs::write(temp_file_path, user_prompt)?;
+
+    let status = Command::new("nvim")
+        .args(&["-c", "normal! G$", &temp_file_path.to_string_lossy()])
+        .status()?;
+
+    if !status.success() {
+        anyhow::bail!("failed to write file");
+    }
+
+    Ok(fs::read_to_string(temp_file_path)?.trim().to_string())
+}
+
 enum HandleEventsAction {
     None,
     Exit,
@@ -120,6 +139,35 @@ fn handle_events(
                 && key_event.modifiers.contains(KeyModifiers::CONTROL)
             {
                 copy_user_prompt_to_clipboard(&user_prompt)?;
+                continue;
+            }
+
+            if key_event.code == KeyCode::Char('e')
+                && key_event.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                let mut new_lines_count = 0;
+                for char in user_prompt.chars() {
+                    if char == '\n' {
+                        new_lines_count += 1;
+                    }
+                }
+
+                if new_lines_count > 0 {
+                    queue!(stdout, MoveUp(new_lines_count))?;
+                }
+                queue!(stdout, MoveToColumn(2), Clear(ClearType::FromCursorDown))?;
+                stdout.flush()?;
+
+                *user_prompt = open_editor(&user_prompt)?;
+                for char in user_prompt.trim().chars() {
+                    if char == '\n' {
+                        write!(stdout, "\r\n")?;
+                    } else {
+                        write!(stdout, "{char}")?;
+                    }
+                }
+                stdout.flush()?;
+
                 continue;
             }
 
