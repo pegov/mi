@@ -50,11 +50,21 @@ impl Cursor {
             "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT / {} MAX\n> ",
             session.delta_string(),
             session.remaining_string(),
-            session.input_tokens,
-            session.cache_tokens,
-            session.output_tokens,
-            self.max_context,
+            format_tokens_count(session.input_tokens),
+            format_tokens_count(session.cache_tokens),
+            format_tokens_count(session.output_tokens),
+            format_tokens_count(self.max_context),
         )
+    }
+}
+
+fn format_tokens_count(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{}m", value / 1_000_000)
+    } else if value >= 1_000 {
+        format!("{}k", value / 1_000)
+    } else {
+        value.to_string()
     }
 }
 
