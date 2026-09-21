@@ -251,6 +251,14 @@ fn handle_events(
     return Ok(HandleEventsAction::None);
 }
 
+const SYSTEM_PROMPT_SKILLS_HOWTO: &str = "If the skill is not in the system prompt, \
+                                          then it is not available for auto-discovery! \
+                                          Do not try to find it! \
+                                          If you don't have the skill, \
+                                          do not make up the logic for this action \
+                                          and immediately tell the user that \
+                                          you don't have the skill and information about it.";
+
 fn run_chat(
     preset: OpenRouterPreset,
     reasoning_effort: OpenRouterReasoning,
@@ -282,12 +290,10 @@ fn run_chat(
             system_prompt.push_str("\n\n");
         }
         system_prompt.push_str(&format_skills(&skills_to_prompt));
-    }
 
-    system_prompt.push_str("\n");
-    system_prompt.push_str(
-        "If the skill is not in the system prompt, then it is not available for auto-discovery! Do not try to find it! If you don't have the skill, do not make up the logic for this action and immediately tell the user that you don't have the skill and information about it.",
-    );
+        system_prompt.push_str("\n");
+        system_prompt.push_str(SYSTEM_PROMPT_SKILLS_HOWTO);
+    }
 
     let read_tool = tool::Read;
     let write_tool = tool::WriteTool;
