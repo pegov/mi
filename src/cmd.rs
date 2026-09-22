@@ -63,8 +63,8 @@ impl OpenRouterPreset {
             Self::None => "none",
             Self::DeepSeek => "deepseek/deepseek-v4.1-flash",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
-            Self::OpenAILuna => "openai/gpt-5.6-luna",
-            Self::OpenAISol => "openai/gpt-5.6-sol",
+            Self::OpenAILuna => "openai/gpt-6-luna",
+            Self::OpenAISol => "openai/gpt-6-sol",
         }
     }
 
