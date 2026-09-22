@@ -9,13 +9,18 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    Local,
+    Local {
+        #[arg(long)]
+        resume: bool,
+    },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
         #[arg(short, long, value_enum, default_value_t = OpenRouterPreset::DeepSeek)]
         preset: OpenRouterPreset,
         #[arg(short, long, value_enum, default_value_t = OpenRouterReasoning::Low)]
         reasoning: OpenRouterReasoning,
+        #[arg(long)]
+        resume: bool,
     },
     #[command(name = "image-gen")]
     ImageGen {

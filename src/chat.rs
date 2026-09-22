@@ -1,6 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::fs;
 
-use crate::assembler;
+use crate::{assembler, xdg::must_session_path};
 
 const TOOL_CHOICE_AUTO: &str = "auto";
 
@@ -42,9 +43,23 @@ impl Chat {
             messages: vec![Message::System(system_message), Message::User(user_message)],
         }
     }
+
+    pub fn save_messages(&self) -> anyhow::Result<()> {
+        let path = must_session_path();
+        fs::create_dir_all(path.parent().unwrap())?;
+        fs::write(path, serde_json::to_vec(&self.messages)?)?;
+        Ok(())
+    }
+
+    pub fn resume(&mut self, user_prompt: &str) -> anyhow::Result<()> {
+        self.messages = serde_json::from_slice(&fs::read(must_session_path())?)?;
+        self.messages
+            .push(Message::User(SimpleMessage::new(user_prompt)));
+        Ok(())
+    }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 pub enum Message {
     System(SimpleMessage),
@@ -53,7 +68,7 @@ pub enum Message {
     Tool(Tool),
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SimpleMessage {
     content: String,
 }
@@ -66,10 +81,10 @@ impl SimpleMessage {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AssistantMessage {
     content: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tool_calls: Vec<ToolCall>,
 }
 
@@ -82,7 +97,7 @@ impl AssistantMessage {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ToolCall {
     id: String,
     #[serde(rename = "type")]
@@ -105,13 +120,13 @@ impl From<&assembler::ToolCall> for ToolCall {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ToolCallFunction {
     name: String,
     arguments: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Tool {
     tool_call_id: String,
     content: String,

@@ -40,6 +40,15 @@ pub fn must_skills_dir() -> PathBuf {
         .into()
 }
 
+pub fn must_session_path() -> PathBuf {
+    PathBuf::from(
+        env::var_os("XDG_STATE_HOME")
+            .unwrap_or_else(|| env::home_dir().unwrap().join(".local/state").into()),
+    )
+    .join("mi")
+    .join("session.json")
+}
+
 pub fn must_parse_config() -> Config {
     let config_path = must_config_dir().join("config.json");
     let config_str = fs::read_to_string(&config_path).unwrap();

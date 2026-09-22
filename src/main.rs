@@ -268,6 +268,7 @@ fn run_chat(
     max_context: u64,
     credits_gateway: Option<&str>,
     chat_gateway: &str,
+    resume: bool,
 ) -> anyhow::Result<()> {
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -350,6 +351,9 @@ fn run_chat(
         &system_prompt,
         &user_prompt,
     );
+    if resume {
+        chat.resume(&user_prompt)?;
+    }
 
     loop {
         loop {
@@ -479,6 +483,7 @@ fn run_chat(
             let assistant_message = chat::AssistantMessage::new(content, chat_tool_calls);
             chat.messages
                 .push(chat::Message::Assistant(assistant_message));
+            chat.save_messages()?;
 
             if tools.is_empty() {
                 break;
@@ -487,6 +492,7 @@ fn run_chat(
             for tool in tools {
                 chat.messages.push(chat::Message::Tool(tool));
             }
+            chat.save_messages()?;
         }
 
         if let Some(credits_gateway) = credits_gateway {
@@ -614,7 +620,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
     let config = must_parse_config();
 
     match cli.command {
-        cmd::Command::Local => {
+        cmd::Command::Local { resume } => {
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
@@ -624,9 +630,14 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 0,
                 None,
                 &chat_completions_url,
+                resume,
             )?;
         }
-        cmd::Command::OpenRouter { preset, reasoning } => {
+        cmd::Command::OpenRouter {
+            preset,
+            reasoning,
+            resume,
+        } => {
             dbg!(&preset, &reasoning);
             let base_url = config.openrouter.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
@@ -646,6 +657,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 max_context,
                 Some(&credits_url),
                 &chat_completions_url,
+                resume,
             )?
         }
         cmd::Command::ImageGen {
