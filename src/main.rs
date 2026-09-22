@@ -251,6 +251,9 @@ fn handle_events(
     return Ok(HandleEventsAction::None);
 }
 
+const SYSTEM_PROMPT: &str = "You are an expert coding assistant operating inside mi, \
+                            a simple and minimal coding agent harness.";
+
 const SYSTEM_PROMPT_SKILLS_HOWTO: &str = "If the skill is not in the system prompt, \
                                           then it is not available for auto-discovery! \
                                           Do not try to find it! \
@@ -275,7 +278,7 @@ fn run_chat(
 
     let cursor = Cursor::new(max_context);
 
-    let mut system_prompt = String::new();
+    let mut system_prompt = String::from(SYSTEM_PROMPT);
 
     let skills = parse_skills()?;
     let mut skills_to_prompt = Vec::with_capacity(skills.len());
