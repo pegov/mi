@@ -134,3 +134,23 @@ FULL BODY";
         assert_eq!(skill_yaml.body, "FULL BODY");
     }
 }
+
+pub fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option<String> {
+    for skill in skills {
+        if skill.name != name {
+            continue;
+        }
+
+        if args != "" {
+            return Some(format!(
+                "[Manual skill invocation]\nAuto-inserting SKILL.md text:\n{}\nARGUMENTS: {}",
+                skill.full.trim(),
+                args.trim()
+            ));
+        } else {
+            return Some(skill.full.clone());
+        }
+    }
+
+    None
+}

@@ -1,22 +1,21 @@
 use std::{
     collections::HashMap,
-    fs::{self, File},
+    fs::File,
     io::{self, BufRead, BufReader, BufWriter, Write},
-    process::{Command, Stdio},
     time::Duration,
 };
 
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mi::{
     assembler::Assembler,
     chan, chat,
     cmd::{self, Cli, OpenRouterPreset, OpenRouterReasoning},
     completions::{Answer, FinishReason},
+    copy::copy_user_prompt_to_clipboard,
     credits, image, jev,
     printer::{self, Cursor, Printer},
-    skill::{Skill, format_skills, parse_skills},
+    skill::{format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
-    xdg::must_parse_config,
+    xdg::{must_parse_config, open_editor},
 };
 
 use clap::Parser;
@@ -31,84 +30,12 @@ use reqwest::Url;
 use time::OffsetDateTime;
 use time::macros::format_description;
 
-fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option<String> {
-    for skill in skills {
-        if skill.name != name {
-            continue;
-        }
-
-        if args != "" {
-            return Some(format!(
-                "[Manual skill invocation]\nAuto-inserting SKILL.md text:\n{}\nARGUMENTS: {}",
-                skill.full.trim(),
-                args.trim()
-            ));
-        } else {
-            return Some(skill.full.clone());
-        }
-    }
-
-    None
-}
-
 fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
     if let Some(rest) = prompt.trim().strip_prefix("/skill:") {
         rest.split_once(" ")
     } else {
         None
     }
-}
-
-fn copy_via_osc52(text: &str) -> io::Result<()> {
-    let mut stdout = io::stdout();
-    let encoded = STANDARD.encode(text);
-
-    write!(stdout, "\x1b]52;c;{}\x07", encoded)?;
-    stdout.flush()?;
-    Ok(())
-}
-
-fn copy_via_xclip(user_prompt: &str) -> anyhow::Result<()> {
-    let mut cmd = Command::new("xclip")
-        .args(&["-selection", "clipboard"])
-        .stdin(Stdio::piped())
-        .spawn()?;
-
-    if let Some(mut stdin) = cmd.stdin.take() {
-        stdin.write_all(user_prompt.as_bytes())?
-    }
-
-    cmd.wait()?;
-    Ok(())
-}
-
-fn copy_user_prompt_to_clipboard(user_prompt: &str) -> anyhow::Result<()> {
-    if copy_via_xclip(user_prompt).is_ok() {
-        return Ok(());
-    }
-
-    if copy_via_osc52(user_prompt).is_ok() {
-        return Ok(());
-    }
-
-    anyhow::bail!("failed to copy prompt")
-}
-
-fn open_editor(user_prompt: &str) -> anyhow::Result<String> {
-    let temp_file = tempfile::NamedTempFile::new()?;
-    let temp_file_path = temp_file.path();
-
-    fs::write(temp_file_path, user_prompt)?;
-
-    let status = Command::new("nvim")
-        .args(&["-c", "normal! G$", &temp_file_path.to_string_lossy()])
-        .status()?;
-
-    if !status.success() {
-        anyhow::bail!("failed to write file");
-    }
-
-    Ok(fs::read_to_string(temp_file_path)?.trim().to_string())
 }
 
 enum HandleEventsAction {

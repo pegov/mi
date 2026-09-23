@@ -3,6 +3,7 @@ pub mod chan;
 pub mod chat;
 pub mod cmd;
 pub mod completions;
+pub mod copy;
 pub mod credits;
 pub mod image;
 pub mod jev;

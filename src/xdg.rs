@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, path::PathBuf, process::Command};
 
 use serde::Deserialize;
 
@@ -53,4 +53,21 @@ pub fn must_parse_config() -> Config {
     let config_path = must_config_dir().join("config.json");
     let config_str = fs::read_to_string(&config_path).unwrap();
     serde_json::from_str(&config_str).unwrap()
+}
+
+pub fn open_editor(user_prompt: &str) -> anyhow::Result<String> {
+    let temp_file = tempfile::NamedTempFile::new()?;
+    let temp_file_path = temp_file.path();
+
+    fs::write(temp_file_path, user_prompt)?;
+
+    let status = Command::new("nvim")
+        .args(&["-c", "normal! G$", &temp_file_path.to_string_lossy()])
+        .status()?;
+
+    if !status.success() {
+        anyhow::bail!("failed to write file");
+    }
+
+    Ok(fs::read_to_string(temp_file_path)?.trim().to_string())
 }
