@@ -5,24 +5,23 @@ use serde::Deserialize;
 use super::{Tool, tool::format_lines};
 
 #[derive(Deserialize)]
-pub struct ReadArgs {
+struct TailArgs {
     path: String,
-    from_line: Option<usize>,
-    to_line: Option<usize>,
+    lines: Option<usize>,
     show_line_numbers: Option<bool>,
 }
 
-pub struct Read;
+pub struct Tail;
 
-impl Read {
-    fn parse_args(&self, args: &str) -> anyhow::Result<ReadArgs> {
+impl Tail {
+    fn parse_args(&self, args: &str) -> anyhow::Result<TailArgs> {
         Ok(serde_json::from_str(args)?)
     }
 }
 
-impl Tool for Read {
+impl Tool for Tail {
     fn name(&self) -> &str {
-        "read"
+        "tail"
     }
 
     fn json(&self) -> serde_json::Value {
@@ -30,8 +29,8 @@ impl Tool for Read {
             {
                 "type": "function",
                 "function": {
-                    "name": "read",
-                    "description": "read file by path (relative or absolute)",
+                    "name": "tail",
+                    "description": "read the end of a file",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -39,13 +38,9 @@ impl Tool for Read {
                                 "type": "string",
                                 "description": "path to the file"
                             },
-                            "from_line": {
+                            "lines": {
                                 "type": "integer",
-                                "description": "first line to read (1-based, inclusive)"
-                            },
-                            "to_line": {
-                                "type": "integer",
-                                "description": "last line to read (1-based, inclusive)"
+                                "description": "number of lines (default 10)"
                             },
                             "show_line_numbers": {
                                 "type": "boolean",
@@ -66,38 +61,18 @@ impl Tool for Read {
 
     fn note(&self, args: &str) -> anyhow::Result<String> {
         let args = self.parse_args(args)?;
-        Ok(format!("[read] {}", args.path))
+        Ok(format!("[tail] {}", args.path))
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args = self.parse_args(args)?;
-        let path = Path::new(&args.path);
-        let content = std::fs::read_to_string(path)?;
-
-        if args.from_line.is_none()
-            && args.to_line.is_none()
-            && !args.show_line_numbers.unwrap_or(false)
-        {
-            return Ok(content);
-        }
-        if args.from_line == Some(0) || args.to_line == Some(0) {
-            anyhow::bail!("line numbers start at 1");
-        }
-
+        let content = std::fs::read_to_string(Path::new(&args.path))?;
         let lines: Vec<&str> = content.lines().collect();
-        let start = args.from_line.unwrap_or(1);
-        if let Some(end) = args.to_line {
-            if start > end {
-                anyhow::bail!("from_line must not be greater than to_line");
-            }
-        }
-
-        let first = (start - 1).min(lines.len());
-        let last = args.to_line.unwrap_or(lines.len()).min(lines.len());
-        let selected = lines.get(first..last).unwrap_or(&[]);
+        let count = args.lines.unwrap_or(10);
+        let start = lines.len() - count.min(lines.len());
         Ok(format_lines(
-            selected,
-            start,
+            &lines[start..],
+            start + 1,
             args.show_line_numbers.unwrap_or(false),
         ))
     }

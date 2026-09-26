@@ -82,11 +82,13 @@ fn run_chat(
     }
 
     let read_tool = tool::Read;
+    let tail_tool = tool::Tail;
     let write_tool = tool::WriteTool;
     let edit_tool = tool::EditTool;
     let bash_tool = tool::BashTool;
     let tools = Some(vec![
         read_tool.json(),
+        tail_tool.json(),
         write_tool.json(),
         edit_tool.json(),
         bash_tool.json(),
@@ -94,6 +96,7 @@ fn run_chat(
 
     let mut tool_map: HashMap<String, Box<dyn Tool>> = HashMap::new();
     tool_map.insert(read_tool.name().to_owned(), Box::new(read_tool));
+    tool_map.insert(tail_tool.name().to_owned(), Box::new(tail_tool));
     tool_map.insert(write_tool.name().to_owned(), Box::new(write_tool));
     tool_map.insert(edit_tool.name().to_owned(), Box::new(edit_tool));
     tool_map.insert(bash_tool.name().to_owned(), Box::new(bash_tool));
