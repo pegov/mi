@@ -86,8 +86,11 @@ pub fn handle_events(
                 if !user_prompt.is_empty() {
                     if user_prompt.ends_with('\n') {
                         user_prompt.pop();
-                        let total_lines = user_prompt.lines().count();
-                        let last_line_len = user_prompt.lines().last().unwrap_or("").len() as u16;
+                        let total_lines = user_prompt.split('\n').count();
+                        let last_line_len = match user_prompt.rsplit_once('\n') {
+                            Some((_, last_line)) => last_line.len(),
+                            None => user_prompt.len(),
+                        } as u16;
                         stdout.queue(MoveUp(1))?;
                         if total_lines <= 1 {
                             stdout.queue(MoveToColumn(last_line_len + 2))?;
