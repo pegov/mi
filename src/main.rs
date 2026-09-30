@@ -423,7 +423,12 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             reasoning,
             resume,
         } => {
-            dbg!(&preset, &reasoning);
+            println!(
+                "OpenRouter | preset: {} ({}) | reasoning: {}",
+                preset.as_str(),
+                preset.model(),
+                reasoning.as_str()
+            );
             let base_url = config.openrouter.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
             let credits_url = format!("{base_url}/credits");

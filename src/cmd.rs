@@ -58,6 +58,16 @@ pub enum OpenRouterPreset {
 }
 
 impl OpenRouterPreset {
+    pub fn as_str(&self) -> &str {
+        match *self {
+            Self::None => "none",
+            Self::DeepSeek => "deepseek",
+            Self::GlmFlash => "glm-flash",
+            Self::OpenAILuna => "luna",
+            Self::OpenAISol => "sol",
+        }
+    }
+
     pub fn model(&self) -> &str {
         match *self {
             Self::None => "none",
