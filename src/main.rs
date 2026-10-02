@@ -62,10 +62,11 @@ fn run_chat(
 
     let cursor = Cursor::new(max_context);
 
-    let mut system_prompt = match system_prompt_preset {
-        Some(name) => load_system_prompt_preset(name)?,
-        None => String::from(SYSTEM_PROMPT),
-    };
+    let mut system_prompt = String::from(SYSTEM_PROMPT);
+    if let Some(name) = system_prompt_preset {
+        system_prompt.push_str("\n");
+        system_prompt.push_str(&load_system_prompt_preset(name)?);
+    }
 
     let skills = parse_skills()?;
     let mut skills_to_prompt = Vec::with_capacity(skills.len());
