@@ -14,6 +14,8 @@ pub enum Command {
         resume: bool,
         #[arg(long, visible_alias = "spp")]
         system_prompt_preset: Option<String>,
+        #[arg(long, visible_alias = "ddsp")]
+        disable_default_system_prompt: bool,
     },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
@@ -25,6 +27,8 @@ pub enum Command {
         resume: bool,
         #[arg(long, visible_alias = "spp")]
         system_prompt_preset: Option<String>,
+        #[arg(long, visible_alias = "ddsp")]
+        disable_default_system_prompt: bool,
     },
     #[command(name = "image-gen")]
     ImageGen {

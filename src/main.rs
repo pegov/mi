@@ -52,6 +52,7 @@ fn run_chat(
     chat_gateway: &str,
     resume: bool,
     system_prompt_preset: Option<&str>,
+    disable_default_system_prompt: bool,
 ) -> anyhow::Result<()> {
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -62,10 +63,18 @@ fn run_chat(
 
     let cursor = Cursor::new(max_context);
 
-    let mut system_prompt = String::from(SYSTEM_PROMPT);
-    if let Some(name) = system_prompt_preset {
-        system_prompt.push_str("\n");
-        system_prompt.push_str(&load_system_prompt_preset(name)?);
+    let mut system_prompt = match disable_default_system_prompt {
+        true => String::new(),
+        false => String::from(SYSTEM_PROMPT),
+    };
+    match system_prompt_preset {
+        Some(name) => {
+            if !disable_default_system_prompt {
+                system_prompt.push_str("\n");
+            }
+            system_prompt.push_str(&load_system_prompt_preset(name)?);
+        }
+        None => {}
     }
 
     let skills = parse_skills()?;
@@ -413,6 +422,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
         cmd::Command::Local {
             resume,
             system_prompt_preset,
+            disable_default_system_prompt,
         } => {
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
@@ -425,6 +435,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 &chat_completions_url,
                 resume,
                 system_prompt_preset.as_deref(),
+                disable_default_system_prompt,
             )?;
         }
         cmd::Command::OpenRouter {
@@ -432,6 +443,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             reasoning,
             resume,
             system_prompt_preset,
+            disable_default_system_prompt,
         } => {
             println!(
                 "OpenRouter | preset: {} ({}) | reasoning: {}",
@@ -459,6 +471,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 &chat_completions_url,
                 resume,
                 system_prompt_preset.as_deref(),
+                disable_default_system_prompt,
             )?
         }
         cmd::Command::ImageGen {
