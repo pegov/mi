@@ -16,7 +16,7 @@ use mi::{
     printer::{self, Cursor, Printer},
     skill::{format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
-    xdg::must_parse_config,
+    xdg::{load_system_prompt_preset, must_parse_config},
 };
 
 use clap::Parser;
@@ -51,6 +51,7 @@ fn run_chat(
     credits_gateway: Option<&str>,
     chat_gateway: &str,
     resume: bool,
+    system_prompt_preset: Option<&str>,
 ) -> anyhow::Result<()> {
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -61,7 +62,10 @@ fn run_chat(
 
     let cursor = Cursor::new(max_context);
 
-    let mut system_prompt = String::from(SYSTEM_PROMPT);
+    let mut system_prompt = match system_prompt_preset {
+        Some(name) => load_system_prompt_preset(name)?,
+        None => String::from(SYSTEM_PROMPT),
+    };
 
     let skills = parse_skills()?;
     let mut skills_to_prompt = Vec::with_capacity(skills.len());
@@ -405,7 +409,10 @@ fn start(cli: Cli) -> anyhow::Result<()> {
     let config = must_parse_config();
 
     match cli.command {
-        cmd::Command::Local { resume } => {
+        cmd::Command::Local {
+            resume,
+            system_prompt_preset,
+        } => {
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
@@ -416,12 +423,14 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 &chat_completions_url,
                 resume,
+                system_prompt_preset.as_deref(),
             )?;
         }
         cmd::Command::OpenRouter {
             preset,
             reasoning,
             resume,
+            system_prompt_preset,
         } => {
             println!(
                 "OpenRouter | preset: {} ({}) | reasoning: {}",
@@ -448,6 +457,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 Some(&credits_url),
                 &chat_completions_url,
                 resume,
+                system_prompt_preset.as_deref(),
             )?
         }
         cmd::Command::ImageGen {

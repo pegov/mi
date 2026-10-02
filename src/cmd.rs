@@ -12,6 +12,8 @@ pub enum Command {
     Local {
         #[arg(long)]
         resume: bool,
+        #[arg(long, visible_alias = "spp")]
+        system_prompt_preset: Option<String>,
     },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
@@ -21,6 +23,8 @@ pub enum Command {
         reasoning: OpenRouterReasoning,
         #[arg(long)]
         resume: bool,
+        #[arg(long, visible_alias = "spp")]
+        system_prompt_preset: Option<String>,
     },
     #[command(name = "image-gen")]
     ImageGen {

@@ -1,5 +1,6 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
+use anyhow::{Context, Result};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +31,40 @@ fn must_config_dir() -> PathBuf {
             .unwrap_or_else(|| env::home_dir().unwrap().join(".config").into()),
     )
     .join("mi")
+}
+
+pub fn load_system_prompt_preset(name: &str) -> Result<String> {
+    let dir = must_config_dir().join("sp-presets");
+
+    let mut names = fs::read_dir(&dir)
+        .context(format!("reading: {}", dir.display()))?
+        .map(|entry| {
+            let entry = entry?;
+            let path = entry.path();
+
+            if !entry.file_type()?.is_file() || path.extension().is_none_or(|ext| ext != "md") {
+                return Ok(None);
+            }
+
+            Ok(path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_owned))
+        })
+        .collect::<Result<Vec<Option<String>>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    names.sort();
+    if !names.iter().any(|preset| preset == name) {
+        anyhow::bail!(
+            "unknown system prompt preset {name:?}, available: {}",
+            names.join(", ")
+        );
+    }
+
+    let path = dir.join(format!("{name}.md"));
+    fs::read_to_string(&path).context(format!("reading {}", path.display()))
 }
 
 pub fn must_skills_dir() -> PathBuf {
