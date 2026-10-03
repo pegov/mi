@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{collections::HashMap, env, fs, path::PathBuf, process::Command};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -8,6 +8,42 @@ pub struct Config {
     pub local: LocalConfig,
     pub openrouter: OpenRouterConfig,
     pub jev: JevConfig,
+    #[serde(default)]
+    pub profiles: HashMap<String, Profile>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Profile {
+    #[serde(alias = "system_prompt_presets")]
+    pub spp: Vec<String>,
+}
+
+impl Config {
+    pub fn system_prompt_presets(
+        &self,
+        profile: Option<&str>,
+        cli_spp: Vec<String>,
+    ) -> Result<Vec<String>> {
+        let mut spp = match profile {
+            Some(name) => {
+                let mut available = self.profiles.keys().map(String::as_str).collect::<Vec<_>>();
+                available.sort();
+                self.profiles
+                    .get(name)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "unknown profile {name:?}, available: {}",
+                            available.join(", ")
+                        )
+                    })?
+                    .spp
+                    .clone()
+            }
+            None => Vec::new(),
+        };
+        spp.extend(cli_spp);
+        Ok(spp)
+    }
 }
 
 #[derive(Debug, Deserialize)]

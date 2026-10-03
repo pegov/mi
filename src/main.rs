@@ -417,9 +417,12 @@ fn start(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         cmd::Command::Local {
             resume,
+            profile,
             system_prompt_preset,
             disable_default_system_prompt,
         } => {
+            let system_prompt_preset =
+                config.system_prompt_presets(profile.as_deref(), system_prompt_preset)?;
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
@@ -438,9 +441,12 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             preset,
             reasoning,
             resume,
+            profile,
             system_prompt_preset,
             disable_default_system_prompt,
         } => {
+            let system_prompt_preset =
+                config.system_prompt_presets(profile.as_deref(), system_prompt_preset)?;
             println!(
                 "OpenRouter | preset: {} ({}) | reasoning: {}",
                 preset.as_str(),

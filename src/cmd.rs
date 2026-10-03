@@ -12,6 +12,8 @@ pub enum Command {
     Local {
         #[arg(long)]
         resume: bool,
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long, visible_alias = "spp")]
         system_prompt_preset: Vec<String>,
         #[arg(long, visible_alias = "ddsp")]
@@ -25,6 +27,8 @@ pub enum Command {
         reasoning: OpenRouterReasoning,
         #[arg(long)]
         resume: bool,
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long, visible_alias = "spp")]
         system_prompt_preset: Vec<String>,
         #[arg(long, visible_alias = "ddsp")]
