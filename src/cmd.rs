@@ -13,7 +13,7 @@ pub enum Command {
         #[arg(long)]
         resume: bool,
         #[arg(long, visible_alias = "spp")]
-        system_prompt_preset: Option<String>,
+        system_prompt_preset: Vec<String>,
         #[arg(long, visible_alias = "ddsp")]
         disable_default_system_prompt: bool,
     },
@@ -26,7 +26,7 @@ pub enum Command {
         #[arg(long)]
         resume: bool,
         #[arg(long, visible_alias = "spp")]
-        system_prompt_preset: Option<String>,
+        system_prompt_preset: Vec<String>,
         #[arg(long, visible_alias = "ddsp")]
         disable_default_system_prompt: bool,
     },

@@ -51,7 +51,7 @@ fn run_chat(
     credits_gateway: Option<&str>,
     chat_gateway: &str,
     resume: bool,
-    system_prompt_preset: Option<&str>,
+    system_prompt_presets: &[String],
     disable_default_system_prompt: bool,
 ) -> anyhow::Result<()> {
     let mut session = if let Some(credits_gateway) = credits_gateway {
@@ -63,19 +63,15 @@ fn run_chat(
 
     let cursor = Cursor::new(max_context);
 
-    let mut system_prompt = match disable_default_system_prompt {
-        true => String::new(),
-        false => String::from(SYSTEM_PROMPT),
-    };
-    match system_prompt_preset {
-        Some(name) => {
-            if !disable_default_system_prompt {
-                system_prompt.push_str("\n");
-            }
-            system_prompt.push_str(&load_system_prompt_preset(name)?);
-        }
-        None => {}
+    let mut prompt_parts = Vec::new();
+    if !disable_default_system_prompt {
+        prompt_parts.push(SYSTEM_PROMPT.to_owned());
     }
+    for name in system_prompt_presets {
+        let preset = load_system_prompt_preset(name)?;
+        prompt_parts.push(preset.trim_end_matches("\n").to_owned());
+    }
+    let mut system_prompt = prompt_parts.join("\n\n");
 
     let skills = parse_skills()?;
     let mut skills_to_prompt = Vec::with_capacity(skills.len());
@@ -434,7 +430,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 &chat_completions_url,
                 resume,
-                system_prompt_preset.as_deref(),
+                &system_prompt_preset,
                 disable_default_system_prompt,
             )?;
         }
@@ -470,7 +466,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 Some(&credits_url),
                 &chat_completions_url,
                 resume,
-                system_prompt_preset.as_deref(),
+                &system_prompt_preset,
                 disable_default_system_prompt,
             )?
         }
