@@ -195,6 +195,14 @@ fn run_chat(
                         break;
                     }
 
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(message) = value["error"]["message"].as_str() {
+                            printer.new_line()?;
+                            eprintln!("API error: {}", message);
+                            continue;
+                        }
+                    }
+
                     match serde_json::from_str::<Answer>(data) {
                         Ok(v) => {
                             if let Some(ref usage) = v.usage {
