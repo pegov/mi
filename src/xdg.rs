@@ -28,16 +28,14 @@ impl Config {
             Some(name) => {
                 let mut available = self.profiles.keys().map(String::as_str).collect::<Vec<_>>();
                 available.sort();
-                self.profiles
-                    .get(name)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "unknown profile {name:?}, available: {}",
-                            available.join(", ")
-                        )
-                    })?
-                    .spp
-                    .clone()
+                let profile = self.profiles.get(name).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "unknown profile {name:?}, available: {}",
+                        available.join(", ")
+                    )
+                })?;
+                println!("Loaded profile {name:?} | spps: {}", profile.spp.join(", "));
+                profile.spp.clone()
             }
             None => Vec::new(),
         };
