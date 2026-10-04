@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use serde::Deserialize;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -21,10 +22,10 @@ pub enum Command {
     },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
-        #[arg(short, long, value_enum, default_value_t = OpenRouterPreset::DeepSeek)]
-        preset: OpenRouterPreset,
-        #[arg(short, long, value_enum, default_value_t = OpenRouterReasoning::Low)]
-        reasoning: OpenRouterReasoning,
+        #[arg(short, long, value_enum)]
+        preset: Option<OpenRouterPreset>,
+        #[arg(short, long, value_enum)]
+        reasoning: Option<OpenRouterReasoning>,
         #[arg(long)]
         resume: bool,
         #[arg(long)]
@@ -55,16 +56,21 @@ pub enum Command {
     Jev,
 }
 
-#[derive(Clone, Debug, Default, ValueEnum)]
+#[derive(Clone, Debug, Default, Deserialize, ValueEnum)]
 pub enum OpenRouterPreset {
     #[default]
+    #[serde(rename = "none")]
     None,
+    #[serde(rename = "deepseek")]
     #[value(name = "deepseek")]
     DeepSeek,
+    #[serde(rename = "glm-flash")]
     #[value(name = "glm-flash")]
     GlmFlash,
+    #[serde(rename = "luna")]
     #[value(name = "luna")]
     OpenAILuna,
+    #[serde(rename = "sol")]
     #[value(name = "sol")]
     OpenAISol,
 }
@@ -130,15 +136,19 @@ impl OpenRouterPreset {
     }
 }
 
-#[derive(Clone, Debug, Default, ValueEnum)]
+#[derive(Clone, Debug, Default, Deserialize, ValueEnum)]
 pub enum OpenRouterReasoning {
+    #[serde(rename = "none")]
     #[value(name = "none")]
     None,
     #[default]
+    #[serde(rename = "low")]
     #[value(name = "low")]
     Low,
+    #[serde(rename = "medium")]
     #[value(name = "medium")]
     Medium,
+    #[serde(rename = "high")]
     #[value(name = "high")]
     High,
 }

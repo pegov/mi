@@ -421,8 +421,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             system_prompt_preset,
             disable_default_system_prompt,
         } => {
-            let system_prompt_preset =
-                config.system_prompt_presets(profile.as_deref(), system_prompt_preset)?;
+            let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
@@ -433,7 +432,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 &chat_completions_url,
                 resume,
-                &system_prompt_preset,
+                &profile.spp,
                 disable_default_system_prompt,
             )?;
         }
@@ -445,8 +444,13 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             system_prompt_preset,
             disable_default_system_prompt,
         } => {
-            let system_prompt_preset =
-                config.system_prompt_presets(profile.as_deref(), system_prompt_preset)?;
+            let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
+            let preset = preset
+                .or(profile.preset)
+                .unwrap_or(OpenRouterPreset::DeepSeek);
+            let reasoning = reasoning
+                .or(profile.reasoning)
+                .unwrap_or(OpenRouterReasoning::Low);
             println!(
                 "OpenRouter | preset: {} ({}) | reasoning: {}",
                 preset.as_str(),
@@ -472,7 +476,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 Some(&credits_url),
                 &chat_completions_url,
                 resume,
-                &system_prompt_preset,
+                &profile.spp,
                 disable_default_system_prompt,
             )?
         }

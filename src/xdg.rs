@@ -3,6 +3,8 @@ use std::{collections::HashMap, env, fs, path::PathBuf, process::Command};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::cmd::{OpenRouterPreset, OpenRouterReasoning};
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub local: LocalConfig,
@@ -12,19 +14,17 @@ pub struct Config {
     pub profiles: HashMap<String, Profile>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Profile {
-    #[serde(alias = "system_prompt_presets")]
+    #[serde(default, alias = "system_prompt_presets")]
     pub spp: Vec<String>,
+    pub preset: Option<OpenRouterPreset>,
+    pub reasoning: Option<OpenRouterReasoning>,
 }
 
 impl Config {
-    pub fn system_prompt_presets(
-        &self,
-        profile: Option<&str>,
-        cli_spp: Vec<String>,
-    ) -> Result<Vec<String>> {
-        let mut spp = match profile {
+    pub fn load_profile(&self, profile: Option<&str>, cli_spp: Vec<String>) -> Result<Profile> {
+        let mut profile = match profile {
             Some(name) => {
                 let mut available = self.profiles.keys().map(String::as_str).collect::<Vec<_>>();
                 available.sort();
@@ -34,13 +34,24 @@ impl Config {
                         available.join(", ")
                     )
                 })?;
-                println!("Loaded profile {name:?} | spps: {}", profile.spp.join(", "));
-                profile.spp.clone()
+                println!(
+                    "Loaded profile {name:?} | spps: {} | preset: {} | reasoning: {}",
+                    profile.spp.join(", "),
+                    profile
+                        .preset
+                        .as_ref()
+                        .map_or("default", OpenRouterPreset::as_str),
+                    profile
+                        .reasoning
+                        .as_ref()
+                        .map_or("default", OpenRouterReasoning::as_str),
+                );
+                profile.clone()
             }
-            None => Vec::new(),
+            None => Profile::default(),
         };
-        spp.extend(cli_spp);
-        Ok(spp)
+        profile.spp.extend(cli_spp);
+        Ok(profile)
     }
 }
 
