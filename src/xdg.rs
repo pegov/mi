@@ -3,7 +3,7 @@ use std::{collections::HashMap, env, fs, path::PathBuf, process::Command};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::cmd::{OpenRouterPreset, OpenRouterReasoning};
+use crate::cmd::{OpenRouterModel, OpenRouterReasoning};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -18,7 +18,7 @@ pub struct Config {
 pub struct Profile {
     #[serde(default, alias = "system_prompt_presets")]
     pub spp: Vec<String>,
-    pub preset: Option<OpenRouterPreset>,
+    pub model: Option<OpenRouterModel>,
     pub reasoning: Option<OpenRouterReasoning>,
 }
 
@@ -35,12 +35,12 @@ impl Config {
                     )
                 })?;
                 println!(
-                    "Loaded profile {name:?} | spps: {} | preset: {} | reasoning: {}",
+                    "Loaded profile {name:?} | spps: {} | model: {} | reasoning: {}",
                     profile.spp.join(", "),
                     profile
-                        .preset
+                        .model
                         .as_ref()
-                        .map_or("default", OpenRouterPreset::as_str),
+                        .map_or("default", OpenRouterModel::as_str),
                     profile
                         .reasoning
                         .as_ref()

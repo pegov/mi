@@ -23,7 +23,7 @@ pub enum Command {
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
         #[arg(short, long, value_enum)]
-        preset: Option<OpenRouterPreset>,
+        model: Option<OpenRouterModel>,
         #[arg(short, long, value_enum)]
         reasoning: Option<OpenRouterReasoning>,
         #[arg(long)]
@@ -57,7 +57,7 @@ pub enum Command {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, ValueEnum)]
-pub enum OpenRouterPreset {
+pub enum OpenRouterModel {
     #[default]
     #[serde(rename = "none")]
     None,
@@ -75,7 +75,7 @@ pub enum OpenRouterPreset {
     OpenAISol,
 }
 
-impl OpenRouterPreset {
+impl OpenRouterModel {
     pub fn as_str(&self) -> &str {
         match *self {
             Self::None => "none",

@@ -8,7 +8,7 @@ use std::{
 use mi::{
     assembler::Assembler,
     chan, chat,
-    cmd::{self, Cli, OpenRouterPreset, OpenRouterReasoning},
+    cmd::{self, Cli, OpenRouterModel, OpenRouterReasoning},
     completions::{Answer, FinishReason},
     credits,
     event::{HandleEventsAction, handle_events},
@@ -45,7 +45,7 @@ const SYSTEM_PROMPT_SKILLS_HOWTO: &str = "If the skill is not in the system prom
                                           you don't have the skill and information about it.";
 
 fn run_chat(
-    preset: OpenRouterPreset,
+    model: OpenRouterModel,
     reasoning_effort: OpenRouterReasoning,
     max_context: u64,
     credits_gateway: Option<&str>,
@@ -68,8 +68,8 @@ fn run_chat(
         prompt_parts.push(SYSTEM_PROMPT.to_owned());
     }
     for name in system_prompt_presets {
-        let preset = load_system_prompt_preset(name)?;
-        prompt_parts.push(preset.trim_end_matches("\n").to_owned());
+        let spp = load_system_prompt_preset(name)?;
+        prompt_parts.push(spp.trim_end_matches("\n").to_owned());
     }
     let mut system_prompt = prompt_parts.join("\n\n");
 
@@ -124,8 +124,7 @@ fn run_chat(
 
     let mut printer = Printer::default();
 
-    let (model, provider, service_tier) =
-        (preset.model(), preset.provider(), preset.service_tier());
+    let (model, provider, service_tier) = (model.model(), model.provider(), model.service_tier());
 
     if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
         if let Some(res) = manually_invoke_skill(&skills, name, args) {
@@ -335,13 +334,13 @@ fn run_chat(
     Ok(())
 }
 
-fn get_max_context(url: &str, preset: &OpenRouterPreset) -> anyhow::Result<u64> {
+fn get_max_context(url: &str, model: &OpenRouterModel) -> anyhow::Result<u64> {
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
         .build()?;
 
-    let model_str = preset.model();
-    let provider = preset.provider().unwrap();
+    let model_str = model.model();
+    let provider = model.provider().unwrap();
     let provider = provider
         .get("order")
         .unwrap()
@@ -434,7 +433,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let chat_completions_url = format!("{base_url}/chat/completions");
 
             run_chat(
-                OpenRouterPreset::None,
+                OpenRouterModel::None,
                 OpenRouterReasoning::None,
                 0,
                 None,
@@ -445,7 +444,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             )?;
         }
         cmd::Command::OpenRouter {
-            preset,
+            model,
             reasoning,
             resume,
             profile,
@@ -453,32 +452,30 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             disable_default_system_prompt,
         } => {
             let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
-            let preset = preset
-                .or(profile.preset)
-                .unwrap_or(OpenRouterPreset::DeepSeek);
+            let model = model.or(profile.model).unwrap_or(OpenRouterModel::DeepSeek);
             let reasoning = reasoning
                 .or(profile.reasoning)
                 .unwrap_or(OpenRouterReasoning::Low);
             println!(
-                "OpenRouter | preset: {} ({}) | reasoning: {}",
-                preset.as_str(),
-                preset.model(),
+                "OpenRouter | model: {} ({}) | reasoning: {}",
+                model.as_str(),
+                model.model(),
                 reasoning.as_str()
             );
             let base_url = config.openrouter.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
             let credits_url = format!("{base_url}/credits");
 
-            if matches!(preset, OpenRouterPreset::None) {
-                eprintln!("choose preset");
+            if matches!(model, OpenRouterModel::None) {
+                eprintln!("choose model");
                 return Ok(());
             }
 
             let models_url = format!("{base_url}/models");
-            let max_context = get_max_context(&models_url, &preset)?;
+            let max_context = get_max_context(&models_url, &model)?;
 
             run_chat(
-                preset,
+                model,
                 reasoning,
                 max_context,
                 Some(&credits_url),
