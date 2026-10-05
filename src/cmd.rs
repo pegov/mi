@@ -13,7 +13,7 @@ pub enum Command {
     Local {
         #[arg(long)]
         resume: bool,
-        #[arg(long)]
+        #[arg(short, long)]
         profile: Option<String>,
         #[arg(long, visible_alias = "spp")]
         system_prompt_preset: Vec<String>,
@@ -28,7 +28,7 @@ pub enum Command {
         reasoning: Option<OpenRouterReasoning>,
         #[arg(long)]
         resume: bool,
-        #[arg(long)]
+        #[arg(short, long)]
         profile: Option<String>,
         #[arg(long, visible_alias = "spp")]
         system_prompt_preset: Vec<String>,
