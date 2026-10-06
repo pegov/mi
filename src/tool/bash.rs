@@ -5,6 +5,7 @@ use super::Tool;
 #[derive(Deserialize)]
 struct BashToolArgs {
     command: String,
+    cwd: Option<String>,
 }
 
 pub struct BashTool;
@@ -33,6 +34,10 @@ impl Tool for BashTool {
                             "command": {
                                 "type": "string",
                                 "description": "shell command to run"
+                            },
+                            "cwd": {
+                                "type": "string",
+                                "description": "working directory to run the command in"
                             }
                         },
                         "required": ["command"]
@@ -56,7 +61,12 @@ impl Tool for BashTool {
         use std::process::Command;
 
         let args = self.parse_args(args)?;
-        let output = Command::new("bash").arg("-c").arg(&args.command).output()?;
+        let mut cmd = Command::new("bash");
+        cmd.arg("-c").arg(&args.command);
+        if let Some(cwd) = &args.cwd {
+            cmd.current_dir(cwd);
+        }
+        let output = cmd.output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
