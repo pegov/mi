@@ -77,22 +77,6 @@ pub enum ToolChoice {
     Auto,
 }
 
-// #[derive(Deserialize, Serialize)]
-// #[serde(rename_all = "snake_case")]
-// pub struct Tool {
-//     #[serde(rename = "type")]
-//     type_: String,
-//     function: Function,
-// }
-//
-// #[derive(Deserialize, Serialize)]
-// #[serde(rename_all = "snake_case")]
-// pub struct Function {
-//     name: String,
-//     description: String,
-//     parameters:
-// }
-
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Function {}
