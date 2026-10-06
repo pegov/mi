@@ -457,10 +457,11 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 .or(profile.reasoning)
                 .unwrap_or(OpenRouterReasoning::Low);
             println!(
-                "OpenRouter | model: {} ({}) | reasoning: {}",
+                "OpenRouter | model: {} ({}) | reasoning: {} | service_tier: {}",
                 model.as_str(),
                 model.model(),
-                reasoning.as_str()
+                reasoning.as_str(),
+                model.service_tier().as_deref().unwrap_or("default"),
             );
             let base_url = config.openrouter.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");

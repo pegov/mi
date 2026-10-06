@@ -67,6 +67,12 @@ pub enum OpenRouterModel {
     #[serde(rename = "glm-flash")]
     #[value(name = "glm-flash")]
     GlmFlash,
+    #[serde(rename = "luna/flex")]
+    #[value(name = "luna/flex")]
+    OpenAILunaFlex,
+    #[serde(rename = "sol/flex")]
+    #[value(name = "sol/flex")]
+    OpenAISolFlex,
     #[serde(rename = "luna")]
     #[value(name = "luna")]
     OpenAILuna,
@@ -81,6 +87,8 @@ impl OpenRouterModel {
             Self::None => "none",
             Self::DeepSeek => "deepseek",
             Self::GlmFlash => "glm-flash",
+            Self::OpenAILunaFlex => "luna/flex",
+            Self::OpenAISolFlex => "sol/flex",
             Self::OpenAILuna => "luna",
             Self::OpenAISol => "sol",
         }
@@ -91,8 +99,8 @@ impl OpenRouterModel {
             Self::None => "none",
             Self::DeepSeek => "deepseek/deepseek-v4.1-flash",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
-            Self::OpenAILuna => "openai/gpt-6-luna",
-            Self::OpenAISol => "openai/gpt-6.1-sol",
+            Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
+            Self::OpenAISolFlex | Self::OpenAISol => "openai/gpt-6.1-sol",
         }
     }
 
@@ -111,26 +119,24 @@ impl OpenRouterModel {
                 "allow_fallbacks": false
             }
             )),
-            Self::OpenAILuna => Some(serde_json::json!(
+            Self::OpenAILunaFlex | Self::OpenAISolFlex => Some(serde_json::json!(
             {
                 "order": ["openai/flex"],
                 "allow_fallbacks": false
             }
             )),
-            Self::OpenAISol => Some(serde_json::json!(
+            Self::OpenAILuna | Self::OpenAISol => Some(serde_json::json!(
             {
-                "order": ["openai/flex"],
+                "order": ["openai"],
                 "allow_fallbacks": false
             }
             )),
         }
     }
 
-    pub fn service_tier(&self) -> Option<String> {
-        let flex_str = "flex".to_string();
+    pub fn service_tier(&self) -> Option<&'static str> {
         match *self {
-            Self::OpenAILuna => Some(flex_str),
-            Self::OpenAISol => Some(flex_str),
+            Self::OpenAILunaFlex | Self::OpenAISolFlex => Some("flex"),
             _ => None,
         }
     }
