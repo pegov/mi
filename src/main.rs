@@ -26,11 +26,15 @@ use time::OffsetDateTime;
 use time::macros::format_description;
 
 fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
-    if let Some(rest) = prompt.trim().strip_prefix("/skill:") {
-        rest.split_once(" ")
-    } else {
-        None
+    let prompt = prompt.trim();
+    let rest = prompt
+        .strip_prefix("/skill:")
+        .or_else(|| prompt.strip_prefix('/'))?;
+    let (name, args) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+    if name.is_empty() {
+        return None;
     }
+    Some((name, args.trim_start()))
 }
 
 const SYSTEM_PROMPT: &str = "You are an expert coding assistant operating inside mi, \
