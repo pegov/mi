@@ -55,6 +55,7 @@ fn run_chat(
     credits_gateway: Option<&str>,
     chat_gateway: &str,
     resume: bool,
+    oneshot: Option<&str>,
     system_prompt_presets: &[String],
     disable_default_system_prompt: bool,
 ) -> anyhow::Result<()> {
@@ -120,11 +121,17 @@ fn run_chat(
     stdout.write_all(cursor.to_string(&session).as_bytes())?;
     stdout.flush()?;
 
-    let mut user_prompt = String::new();
-    match handle_events(&mut stdout, &mut user_prompt)? {
-        HandleEventsAction::None => {}
-        HandleEventsAction::Exit => return Ok(()),
-    }
+    let mut user_prompt = if let Some(prompt) = oneshot {
+        writeln!(stdout, "{prompt}")?;
+        prompt.to_owned()
+    } else {
+        let mut prompt = String::new();
+        match handle_events(&mut stdout, &mut prompt)? {
+            HandleEventsAction::None => {}
+            HandleEventsAction::Exit => return Ok(()),
+        }
+        prompt
+    };
 
     let mut printer = Printer::default();
 
@@ -309,6 +316,10 @@ fn run_chat(
         printer.show_cursor()?;
         printer.reset()?;
 
+        if oneshot.is_some() {
+            break;
+        }
+
         stdout.write_all(cursor.to_string(&session).as_bytes())?;
         stdout.flush()?;
 
@@ -428,6 +439,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         cmd::Command::Local {
             resume,
+            oneshot,
             profile,
             system_prompt_preset,
             disable_default_system_prompt,
@@ -443,6 +455,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 &chat_completions_url,
                 resume,
+                oneshot.as_deref(),
                 &profile.spp,
                 disable_default_system_prompt,
             )?;
@@ -451,6 +464,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             model,
             reasoning,
             resume,
+            oneshot,
             profile,
             system_prompt_preset,
             disable_default_system_prompt,
@@ -486,6 +500,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 Some(&credits_url),
                 &chat_completions_url,
                 resume,
+                oneshot.as_deref(),
                 &profile.spp,
                 disable_default_system_prompt,
             )?

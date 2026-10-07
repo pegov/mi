@@ -11,6 +11,8 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Local {
+        #[arg(long, value_name = "PROMPT")]
+        oneshot: Option<String>,
         #[arg(long)]
         resume: bool,
         #[arg(short, long)]
@@ -26,6 +28,8 @@ pub enum Command {
         model: Option<OpenRouterModel>,
         #[arg(short, long, value_enum)]
         reasoning: Option<OpenRouterReasoning>,
+        #[arg(long, value_name = "PROMPT")]
+        oneshot: Option<String>,
         #[arg(long)]
         resume: bool,
         #[arg(short, long)]
