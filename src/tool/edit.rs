@@ -61,21 +61,6 @@ impl Tool for EditTool {
         }
     }
 
-    fn validate_args(&self, args: &str) -> anyhow::Result<()> {
-        let _ = self.parse_args(args)?;
-        Ok(())
-    }
-
-    fn note(&self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
-        Ok(format!(
-            "[edit] {} old_string_len={} new_string_len={}",
-            args.path,
-            args.old_string.len(),
-            args.new_string.len(),
-        ))
-    }
-
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args = self.parse_args(args)?;
         let path = Path::new(&args.path);

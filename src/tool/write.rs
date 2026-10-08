@@ -49,20 +49,6 @@ impl Tool for WriteTool {
         }
     }
 
-    fn validate_args(&self, args: &str) -> anyhow::Result<()> {
-        let _ = self.parse_args(args)?;
-        Ok(())
-    }
-
-    fn note(&self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
-        Ok(format!(
-            "[write] {} content_len={}",
-            args.path,
-            args.content.len()
-        ))
-    }
-
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args = self.parse_args(args)?;
         let path = Path::new(&args.path);

@@ -54,16 +54,6 @@ impl Tool for Tail {
         }
     }
 
-    fn validate_args(&self, args: &str) -> anyhow::Result<()> {
-        let _ = self.parse_args(args)?;
-        Ok(())
-    }
-
-    fn note(&self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
-        Ok(format!("[tail] {}", args.path))
-    }
-
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args = self.parse_args(args)?;
         let content = std::fs::read_to_string(Path::new(&args.path))?;

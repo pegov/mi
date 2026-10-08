@@ -47,16 +47,6 @@ impl Tool for BashTool {
         }
     }
 
-    fn validate_args(&self, args: &str) -> anyhow::Result<()> {
-        let _ = self.parse_args(args)?;
-        Ok(())
-    }
-
-    fn note(&self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
-        Ok(format!("[bash] {}", args.command))
-    }
-
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         use std::process::Command;
 
