@@ -12,12 +12,6 @@ struct WriteToolArgs {
 
 pub struct WriteTool;
 
-impl WriteTool {
-    fn parse_args(&self, args: &str) -> anyhow::Result<WriteToolArgs> {
-        Ok(serde_json::from_str(args)?)
-    }
-}
-
 impl Tool for WriteTool {
     fn name(&self) -> &str {
         "write"
@@ -50,7 +44,7 @@ impl Tool for WriteTool {
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
+        let args: WriteToolArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;

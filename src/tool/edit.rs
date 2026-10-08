@@ -16,12 +16,6 @@ struct EditToolArgs {
 
 pub struct EditTool;
 
-impl EditTool {
-    fn parse_args(&self, args: &str) -> anyhow::Result<EditToolArgs> {
-        Ok(serde_json::from_str(args)?)
-    }
-}
-
 impl Tool for EditTool {
     fn name(&self) -> &str {
         "edit"
@@ -62,7 +56,7 @@ impl Tool for EditTool {
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
+        let args: EditToolArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;

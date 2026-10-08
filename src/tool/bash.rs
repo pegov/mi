@@ -10,12 +10,6 @@ struct BashToolArgs {
 
 pub struct BashTool;
 
-impl BashTool {
-    fn parse_args(&self, args: &str) -> anyhow::Result<BashToolArgs> {
-        Ok(serde_json::from_str(args)?)
-    }
-}
-
 impl Tool for BashTool {
     fn name(&self) -> &str {
         "bash"
@@ -50,7 +44,7 @@ impl Tool for BashTool {
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         use std::process::Command;
 
-        let args = self.parse_args(args)?;
+        let args: BashToolArgs = serde_json::from_str(args)?;
         let mut cmd = Command::new("bash");
         cmd.arg("-c").arg(&args.command);
         if let Some(cwd) = &args.cwd {

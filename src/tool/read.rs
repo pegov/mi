@@ -14,12 +14,6 @@ pub struct ReadArgs {
 
 pub struct Read;
 
-impl Read {
-    fn parse_args(&self, args: &str) -> anyhow::Result<ReadArgs> {
-        Ok(serde_json::from_str(args)?)
-    }
-}
-
 impl Tool for Read {
     fn name(&self) -> &str {
         "read"
@@ -60,7 +54,7 @@ impl Tool for Read {
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
+        let args: ReadArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
         let content = std::fs::read_to_string(path)?;
 

@@ -13,12 +13,6 @@ struct TailArgs {
 
 pub struct Tail;
 
-impl Tail {
-    fn parse_args(&self, args: &str) -> anyhow::Result<TailArgs> {
-        Ok(serde_json::from_str(args)?)
-    }
-}
-
 impl Tool for Tail {
     fn name(&self) -> &str {
         "tail"
@@ -55,7 +49,7 @@ impl Tool for Tail {
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
-        let args = self.parse_args(args)?;
+        let args: TailArgs = serde_json::from_str(args)?;
         let content = std::fs::read_to_string(Path::new(&args.path))?;
         let lines: Vec<&str> = content.lines().collect();
         let count = args.lines.unwrap_or(10);
