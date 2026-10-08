@@ -121,12 +121,13 @@ fn run_chat(
     stdout.write_all(cursor.to_string(&session).as_bytes())?;
     stdout.flush()?;
 
+    let mut prompt_history = Vec::new();
     let mut user_prompt = if let Some(prompt) = oneshot {
         writeln!(stdout, "{prompt}")?;
         prompt.to_owned()
     } else {
         let mut prompt = String::new();
-        match handle_events(&mut stdout, &mut prompt)? {
+        match handle_events(&mut stdout, &mut prompt, &mut prompt_history)? {
             HandleEventsAction::None => {}
             HandleEventsAction::Exit => return Ok(()),
         }
@@ -324,7 +325,7 @@ fn run_chat(
         stdout.flush()?;
 
         let mut user_prompt = String::new();
-        match handle_events(&mut stdout, &mut user_prompt)? {
+        match handle_events(&mut stdout, &mut user_prompt, &mut prompt_history)? {
             HandleEventsAction::None => {}
             HandleEventsAction::Exit => return Ok(()),
         };

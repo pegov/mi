@@ -18,12 +18,16 @@ pub enum HandleEventsAction {
 pub fn handle_events(
     stdout: &mut io::Stdout,
     user_prompt: &mut String,
+    history: &mut Vec<String>,
 ) -> anyhow::Result<HandleEventsAction> {
     enable_raw_mode()?;
     stdout.execute(event::PushKeyboardEnhancementFlags(
         event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
     ))?;
     stdout.execute(event::EnableBracketedPaste)?;
+
+    let mut history_index = history.len();
+    let mut draft = String::new();
 
     loop {
         let event = event::read()?;
@@ -78,7 +82,35 @@ pub fn handle_events(
                 continue;
             }
 
+            if matches!(key_event.code, KeyCode::Up | KeyCode::Down) {
+                match key_event.code {
+                    KeyCode::Up if history_index > 0 => {
+                        if history_index == history.len() {
+                            draft = user_prompt.clone();
+                        }
+                        history_index -= 1;
+                    }
+                    KeyCode::Down if history_index < history.len() => {
+                        history_index += 1;
+                    }
+                    _ => continue,
+                }
+
+                let new_lines_count = user_prompt.chars().filter(|&c| c == '\n').count() as u16;
+                if new_lines_count > 0 {
+                    queue!(stdout, MoveUp(new_lines_count))?;
+                }
+                queue!(stdout, MoveToColumn(2), Clear(ClearType::FromCursorDown))?;
+                *user_prompt = history.get(history_index).unwrap_or(&draft).clone();
+                write!(stdout, "{}", user_prompt.replace('\n', "\r\n"))?;
+                stdout.flush()?;
+                continue;
+            }
+
             if key_event.code == KeyCode::Enter {
+                if !user_prompt.is_empty() {
+                    history.push(user_prompt.clone());
+                }
                 break;
             }
 
