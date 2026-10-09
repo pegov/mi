@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
 
@@ -52,6 +54,9 @@ pub enum Command {
 
         #[arg(long, default_value = "16:9")]
         aspect_ratio: String,
+
+        #[arg(long)]
+        output_dir: PathBuf,
 
         #[arg(long, num_args = 1..)]
         input_reference_path: Vec<String>,

@@ -511,6 +511,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             prompt,
             resolution,
             aspect_ratio,
+            output_dir,
             input_reference_path,
         } => {
             let base_url = config.openrouter.base_url;
@@ -521,6 +522,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 prompt,
                 resolution,
                 aspect_ratio,
+                &output_dir,
                 &input_reference_path,
             )?;
         }

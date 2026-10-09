@@ -12,10 +12,10 @@ pub fn generate_image(
     prompt: String,
     resolution: String,
     aspect_ratio: String,
+    output_dir: &Path,
     reference_paths: &[String],
 ) -> anyhow::Result<()> {
-    let out_dir = PathBuf::from("./output");
-    std::fs::create_dir_all(&out_dir)?;
+    fs::create_dir_all(output_dir)?;
 
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
@@ -102,7 +102,7 @@ pub fn generate_image(
             format!("generated_{:02}", i + 1)
         };
 
-        let out_path = unique_path(&out_dir, &stem, ext);
+        let out_path = unique_path(output_dir, &stem, ext);
 
         let bytes = general_purpose::STANDARD.decode(b64)?;
 
