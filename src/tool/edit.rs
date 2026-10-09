@@ -58,10 +58,6 @@ impl Tool for EditTool {
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args: EditToolArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
         let content = fs::read_to_string(path)?;
         let count = content.matches(&args.old_string).count();
 
