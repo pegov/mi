@@ -282,7 +282,7 @@ fn run_chat(
                 if let Some(ref mut tool_impl) = tool_map.get_mut(&tool_call.function) {
                     let result = tool_impl
                         .call(&tool_call.arguments)
-                        .unwrap_or("failed to call tool with this arg".into());
+                        .unwrap_or_else(|e| format!("failed to call tool: {e}"));
                     printer.print(printer::Mode::Content, &result)?;
                     printer.new_line()?;
                     tools.push(chat::Tool::new(tool_call.id.clone(), result));
