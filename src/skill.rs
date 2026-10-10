@@ -6,7 +6,7 @@ use std::{
 use serde::Deserialize;
 use walkdir::WalkDir;
 
-use crate::xdg::must_skills_dir;
+use crate::xdg::get_skills_dir;
 
 #[derive(Clone, Debug)]
 pub struct Skill {
@@ -92,7 +92,7 @@ fn parse_skill_str(skill_str: &str) -> anyhow::Result<SkillParsed> {
 }
 
 pub fn parse_skills() -> anyhow::Result<Vec<Skill>> {
-    WalkDir::new(must_skills_dir())
+    WalkDir::new(get_skills_dir()?)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_dir())

@@ -70,16 +70,18 @@ pub struct JevConfig {
     pub url: String,
 }
 
-fn must_config_dir() -> PathBuf {
-    PathBuf::from(
-        env::var_os("XDG_CONFIG_HOME")
-            .unwrap_or_else(|| env::home_dir().unwrap().join(".config").into()),
-    )
-    .join("mi")
+fn get_config_dir() -> Result<PathBuf> {
+    let dir = match env::var_os("XDG_CONFIG_HOME") {
+        Some(dir) => PathBuf::from(dir),
+        None => env::home_dir()
+            .ok_or(anyhow::anyhow!("could not find home directory for config"))?
+            .join(".config"),
+    };
+    Ok(dir.join("mi"))
 }
 
 pub fn load_system_prompt_preset(name: &str) -> Result<String> {
-    let dir = must_config_dir().join("sp-presets");
+    let dir = get_config_dir()?.join("sp-presets");
 
     let mut names = fs::read_dir(&dir)
         .context(format!("reading: {}", dir.display()))?
@@ -112,27 +114,27 @@ pub fn load_system_prompt_preset(name: &str) -> Result<String> {
     fs::read_to_string(&path).context(format!("reading {}", path.display()))
 }
 
-pub fn must_skills_dir() -> PathBuf {
-    env::home_dir()
-        .unwrap()
+pub fn get_skills_dir() -> Result<PathBuf> {
+    Ok(env::home_dir()
+        .ok_or(anyhow::anyhow!("could not find home directory for skills"))?
         .join(".agents")
-        .join("skills")
-        .into()
+        .join("skills"))
 }
 
-pub fn must_session_path() -> PathBuf {
-    PathBuf::from(
-        env::var_os("XDG_STATE_HOME")
-            .unwrap_or_else(|| env::home_dir().unwrap().join(".local/state").into()),
-    )
-    .join("mi")
-    .join("session.json")
+pub fn get_session_path() -> Result<PathBuf> {
+    let dir = match env::var_os("XDG_STATE_HOME") {
+        Some(dir) => PathBuf::from(dir),
+        None => env::home_dir()
+            .ok_or(anyhow::anyhow!("could not find home directory for session"))?
+            .join(".local/state"),
+    };
+    Ok(dir.join("mi").join("session.json"))
 }
 
-pub fn must_parse_config() -> Config {
-    let config_path = must_config_dir().join("config.json");
-    let config_str = fs::read_to_string(&config_path).unwrap();
-    serde_json::from_str(&config_str).unwrap()
+pub fn get_parse_config() -> Result<Config> {
+    let config_path = get_config_dir()?.join("config.json");
+    let config_str = fs::read_to_string(&config_path)?;
+    Ok(serde_json::from_str(&config_str)?)
 }
 
 pub fn open_editor(user_prompt: &str) -> anyhow::Result<String> {

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-use crate::{assembler, xdg::must_session_path};
+use crate::{assembler, xdg::get_session_path};
 
 const TOOL_CHOICE_AUTO: &str = "auto";
 
@@ -45,14 +45,14 @@ impl Chat {
     }
 
     pub fn save_messages(&self) -> anyhow::Result<()> {
-        let path = must_session_path();
+        let path = get_session_path()?;
         fs::create_dir_all(path.parent().unwrap())?;
         fs::write(path, serde_json::to_vec(&self.messages)?)?;
         Ok(())
     }
 
     pub fn resume(&mut self, user_prompt: &str) -> anyhow::Result<()> {
-        self.messages = serde_json::from_slice(&fs::read(must_session_path())?)?;
+        self.messages = serde_json::from_slice(&fs::read(get_session_path()?)?)?;
         self.messages
             .push(Message::User(SimpleMessage::new(user_prompt)));
         Ok(())

@@ -16,7 +16,7 @@ use mi::{
     printer::{self, Cursor, Printer},
     skill::{format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
-    xdg::{load_system_prompt_preset, must_parse_config},
+    xdg::{get_parse_config, load_system_prompt_preset},
 };
 
 use clap::Parser;
@@ -435,7 +435,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn start(cli: Cli) -> anyhow::Result<()> {
-    let config = must_parse_config();
+    let config = get_parse_config()?;
 
     match cli.command {
         cmd::Command::Local {
