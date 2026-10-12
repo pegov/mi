@@ -76,6 +76,9 @@ pub enum OpenRouterModel {
     #[serde(rename = "glm-flash")]
     #[value(name = "glm-flash")]
     GlmFlash,
+    #[serde(rename = "mimo")]
+    #[value(name = "mimo")]
+    MiMo,
     #[serde(rename = "luna/flex")]
     #[value(name = "luna/flex")]
     OpenAILunaFlex,
@@ -96,6 +99,7 @@ impl OpenRouterModel {
             Self::None => "none",
             Self::DeepSeek => "deepseek",
             Self::GlmFlash => "glm-flash",
+            Self::MiMo => "mimo",
             Self::OpenAILunaFlex => "luna/flex",
             Self::OpenAISolFlex => "sol/flex",
             Self::OpenAILuna => "luna",
@@ -108,6 +112,7 @@ impl OpenRouterModel {
             Self::None => "none",
             Self::DeepSeek => "deepseek/deepseek-v4.1-flash",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
+            Self::MiMo => "xiaomi/mimo-v2.6-pro",
             Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
             Self::OpenAISolFlex | Self::OpenAISol => "openai/gpt-6.1-sol",
         }
@@ -125,6 +130,12 @@ impl OpenRouterModel {
             Self::GlmFlash => Some(serde_json::json!(
             {
                 "order": ["z-ai/fp8"],
+                "allow_fallbacks": false
+            }
+            )),
+            Self::MiMo => Some(serde_json::json!(
+            {
+                "order": ["xiaomi/fp8"],
                 "allow_fallbacks": false
             }
             )),
