@@ -471,10 +471,12 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             disable_default_system_prompt,
         } => {
             let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
-            let model = model.or(profile.model).unwrap_or(OpenRouterModel::DeepSeek);
+            let model = model
+                .or(profile.model)
+                .unwrap_or(OpenRouterModel::OpenAISolFlex);
             let reasoning = reasoning
                 .or(profile.reasoning)
-                .unwrap_or(OpenRouterReasoning::Low);
+                .unwrap_or(OpenRouterReasoning::Medium);
             println!(
                 "OpenRouter | model: {} ({}) | reasoning: {} | service_tier: {}",
                 model.as_str(),
