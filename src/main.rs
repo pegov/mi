@@ -152,7 +152,7 @@ fn run_chat(
         model,
         provider,
         service_tier,
-        Some(reasoning_effort.as_str().into()),
+        reasoning_effort,
         tools,
         &system_prompt,
         &user_prompt,

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -151,7 +151,7 @@ impl OpenRouterModel {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, ValueEnum)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, ValueEnum)]
 pub enum OpenRouterReasoning {
     #[serde(rename = "none")]
     #[value(name = "none")]

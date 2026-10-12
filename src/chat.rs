@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-use crate::{assembler, xdg::get_session_path};
+use crate::{assembler, cmd::OpenRouterReasoning, xdg::get_session_path};
 
 const TOOL_CHOICE_AUTO: &str = "auto";
 
@@ -12,7 +12,7 @@ pub struct Chat {
     providers: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     service_tier: Option<&'static str>,
-    reasoning_effort: Option<String>,
+    reasoning: Reasoning,
     tools: Option<Vec<serde_json::Value>>,
     tool_choice: &'static str,
     stream: bool,
@@ -24,19 +24,20 @@ impl Chat {
         model: &str,
         providers: Option<serde_json::Value>,
         service_tier: Option<&'static str>,
-        reasoning_effort: Option<String>,
+        reasoning_effort: OpenRouterReasoning,
         tools: Option<Vec<serde_json::Value>>,
         system: &str,
         user: &str,
     ) -> Self {
         let system_message = SimpleMessage::new(system);
         let user_message = SimpleMessage::new(user);
+        let reasoning = Reasoning::new(reasoning_effort);
 
         Self {
             model: model.into(),
             providers,
             service_tier,
-            reasoning_effort,
+            reasoning,
             tools,
             tool_choice: TOOL_CHOICE_AUTO,
             stream: true,
@@ -56,6 +57,17 @@ impl Chat {
         self.messages
             .push(Message::User(SimpleMessage::new(user_prompt)));
         Ok(())
+    }
+}
+
+#[derive(Serialize)]
+pub struct Reasoning {
+    effort: OpenRouterReasoning,
+}
+
+impl Reasoning {
+    fn new(effort: OpenRouterReasoning) -> Self {
+        Self { effort }
     }
 }
 
