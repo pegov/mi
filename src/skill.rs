@@ -112,7 +112,7 @@ pub fn format_skills(skills: &[Skill]) -> String {
         .join("\n");
 
     format!(
-        "Available skills:\n\n{skills_format}\n\nIf a user request matches any skill descriptions, load it first using `<base_path>/SKILL.md`."
+        "Available skills:\n\n{skills_format}\n\nIf a user request matches any skill description, load the skill's `<base_path>/SKILL.md` first, unless the user manually invoked it and its full content is already included in the user message. In that case, use the included content and do not reread the `SKILL.md` file."
     )
 }
 
