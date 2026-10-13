@@ -99,25 +99,19 @@ fn run_chat(
         system_prompt.push_str(SYSTEM_PROMPT_SKILLS_HOWTO);
     }
 
-    let read_tool = tool::Read;
-    let tail_tool = tool::Tail;
-    let write_tool = tool::WriteTool;
-    let edit_tool = tool::EditTool;
-    let bash_tool = tool::BashTool;
-    let tools = Some(vec![
-        read_tool.json(),
-        tail_tool.json(),
-        write_tool.json(),
-        edit_tool.json(),
-        bash_tool.json(),
-    ]);
-
-    let mut tool_map: HashMap<String, Box<dyn Tool>> = HashMap::new();
-    tool_map.insert(read_tool.name().to_owned(), Box::new(read_tool));
-    tool_map.insert(tail_tool.name().to_owned(), Box::new(tail_tool));
-    tool_map.insert(write_tool.name().to_owned(), Box::new(write_tool));
-    tool_map.insert(edit_tool.name().to_owned(), Box::new(edit_tool));
-    tool_map.insert(bash_tool.name().to_owned(), Box::new(bash_tool));
+    let tools: Vec<Box<dyn Tool>> = vec![
+        Box::new(tool::Read),
+        Box::new(tool::Tail),
+        Box::new(tool::WriteTool),
+        Box::new(tool::EditTool),
+        Box::new(tool::BashTool),
+    ];
+    let mut tool_defs = Vec::with_capacity(tools.len());
+    let mut tool_map = HashMap::with_capacity(tools.len());
+    for tool in tools {
+        tool_defs.push(tool.json());
+        tool_map.insert(tool.name().to_owned(), tool);
+    }
 
     let mut stdout = std::io::stdout();
 
@@ -156,7 +150,7 @@ fn run_chat(
         provider,
         service_tier,
         reasoning_effort,
-        tools,
+        Some(tool_defs),
         &system_prompt,
         &user_prompt,
     );
