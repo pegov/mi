@@ -63,6 +63,12 @@ pub enum Command {
     },
     Chan,
     Jev,
+    #[command(name = "mcp-http-server")]
+    McpHttpServer,
+    #[command(name = "mcp-server")]
+    McpServer,
+    #[command(name = "mcp-client")]
+    McpClient,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, ValueEnum)]

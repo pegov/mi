@@ -2,6 +2,8 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
+    sync::Arc,
+    thread,
     time::Duration,
 };
 
@@ -13,6 +15,7 @@ use mi::{
     credits,
     event::{HandleEventsAction, handle_events},
     image, jev,
+    mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
     printer::{self, Cursor, Printer},
     skill::{format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
@@ -407,31 +410,38 @@ fn reset_terminal() {
 }
 
 fn main() -> anyhow::Result<()> {
-    let default_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |panic_info| {
-        reset_terminal();
-        default_hook(panic_info);
-    }));
-
-    ctrlc::set_handler(move || {
-        reset_terminal();
-        println!();
-        std::process::exit(130);
-    })
-    .expect("failed to set ctrlc");
-
     let cli = cmd::Cli::parse();
-    match start(cli) {
-        Ok(_) => {
-            reset_terminal();
-        }
-        Err(e) => {
-            reset_terminal();
-            return Err(e);
+    match cli.command {
+        cmd::Command::McpServer => {}
+        _ => {
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |panic_info| {
+                reset_terminal();
+                default_hook(panic_info);
+            }));
+
+            ctrlc::set_handler(move || {
+                reset_terminal();
+                println!();
+                std::process::exit(130);
+            })
+            .expect("failed to set ctrlc");
         }
     }
 
-    Ok(())
+    match cli.command {
+        cmd::Command::McpServer => start(cli),
+        _ => match start(cli) {
+            Ok(_) => {
+                reset_terminal();
+                Ok(())
+            }
+            Err(e) => {
+                reset_terminal();
+                return Err(e);
+            }
+        },
+    }
 }
 
 fn start(cli: Cli) -> anyhow::Result<()> {
@@ -532,6 +542,67 @@ fn start(cli: Cli) -> anyhow::Result<()> {
         cmd::Command::Jev => {
             let url = config.jev.url;
             jev::jev(&url)?;
+        }
+        cmd::Command::McpServer => {
+            echo_mcp_server()?;
+        }
+        cmd::Command::McpHttpServer => {
+            mcp_http_server("127.0.0.1:8090", "/mcp")?;
+        }
+        cmd::Command::McpClient => {
+            let client = SyncMcpClient::connect("tmp/mcp-server.sh")?;
+
+            let remote = Arc::new(SyncMcpClient::connect_http("http://localhost:8090/mcp")?);
+
+            for client in [&client, &remote] {
+                let tools = client.list_tools()?;
+                println!(
+                    "tools: {:?}",
+                    tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+                );
+            }
+            let r = remote.call_tool("echo", serde_json::json!({ "text": "hello http" }))?;
+            println!("{r:?}");
+            let r = remote.call_tool("stream_countdown", serde_json::json!({ "count": 3 }))?;
+            println!("{r:?}");
+
+            let c = Arc::clone(&remote);
+            let call = thread::spawn(move || {
+                c.call_tool("stream_countdown", serde_json::json!({ "count": 5 }))
+            });
+
+            loop {
+                while let Some(p) = remote.try_recv_progress() {
+                    println!(
+                        "progress {}/{}: {}",
+                        p.progress,
+                        p.total.unwrap_or(0.0),
+                        p.message.as_deref().unwrap_or("")
+                    );
+                }
+
+                if call.is_finished() {
+                    // drain (?)
+                    while let Some(p) = remote.try_recv_progress() {
+                        println!(
+                            "progress {}/{}: {}",
+                            p.progress,
+                            p.total.unwrap_or(0.0),
+                            p.message.as_deref().unwrap_or("")
+                        );
+                    }
+                    break;
+                }
+
+                thread::sleep(Duration::from_millis(20));
+            }
+
+            let result = call.join().expect("worker panicked")?;
+            for item in &result.content {
+                if let Some(text) = item.as_text() {
+                    println!("final: {}", text.text);
+                }
+            }
         }
     }
 
