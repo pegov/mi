@@ -19,6 +19,7 @@ use mi::{
     printer::{self, Cursor, Printer},
     skill::{format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
+    tui::start_tui,
     xdg::{get_parse_config, load_system_prompt_preset},
 };
 
@@ -464,6 +465,19 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 &profile.spp,
                 disable_default_system_prompt,
             )?;
+        }
+        cmd::Command::LocalTui {
+            resume,
+            oneshot,
+            profile,
+            system_prompt_preset,
+            disable_default_system_prompt,
+        } => {
+            let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
+            let base_url = config.local.base_url;
+            let chat_completions_url = format!("{base_url}/chat/completions");
+
+            start_tui()?;
         }
         cmd::Command::OpenRouter {
             model,

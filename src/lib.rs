@@ -12,4 +12,5 @@ pub mod mcp;
 pub mod printer;
 pub mod skill;
 pub mod tool;
+pub mod tui;
 pub mod xdg;
