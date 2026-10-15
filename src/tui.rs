@@ -1,10 +1,5 @@
-use std::{io::stdout, time::Duration};
+use std::time::Duration;
 
-use crossterm::{
-    cursor::{MoveToColumn, MoveUp},
-    execute,
-    terminal::{Clear, ClearType},
-};
 use ratatui::{
     Frame, TerminalOptions,
     layout::{Constraint, Layout},
@@ -14,19 +9,18 @@ use ratatui::{
 };
 
 #[derive(Default)]
-struct State {
+pub struct TuiState {
     buffer: String,
+    prompt: String,
 }
 
-pub fn start_tui() -> anyhow::Result<()> {
+pub fn render_tui(state: &mut TuiState) -> anyhow::Result<()> {
     let opts = TerminalOptions {
-        viewport: ratatui::Viewport::Inline(2),
+        viewport: ratatui::Viewport::Inline(3),
     };
     let mut terminal = ratatui::init_with_options(opts);
 
     let tokens = vec!["123", "456", "789", "\n", "n1", "n2", "n3\n", "n4", "n5"];
-
-    let mut state = State::default();
 
     for token in tokens {
         for c in token.chars() {
@@ -44,8 +38,8 @@ pub fn start_tui() -> anyhow::Result<()> {
             }
         }
 
-        terminal.draw(|frame| render(frame, &mut state))?;
-        std::thread::sleep(Duration::from_millis(100));
+        terminal.draw(|frame| render(frame, state))?;
+        std::thread::sleep(Duration::from_millis(500));
     }
     if !state.buffer.is_empty() {
         terminal.insert_before(1, |buf| {
@@ -58,45 +52,38 @@ pub fn start_tui() -> anyhow::Result<()> {
         state.buffer.clear();
     }
 
-    terminal.draw(|frame| render(frame, &mut state))?;
+    terminal.draw(|frame| render(frame, state))?;
 
     ratatui::restore();
-    execute!(
-        stdout(),
-        MoveToColumn(0),
-        MoveUp(1),
-        Clear(ClearType::FromCursorDown),
-    )?;
     Ok(())
 }
 
-fn render(frame: &mut Frame, state: &mut State) {
-    let [content, status] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(frame.area());
+fn render(frame: &mut Frame, state: &mut TuiState) {
+    let [content, prompt, status] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Max(255),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+
+    let p_status = Paragraph::new(Line::from(Span::styled(
+        "[STATUS_LINE]",
+        Style::default().fg(Color::Green),
+    )));
+
+    let p_prompt = Paragraph::new(format!("> {}", state.prompt));
+
+    let p_dynamic = Paragraph::new(Line::from(vec![
+        Span::styled("[dynamic] ", Style::default().fg(Color::Red)),
+        Span::raw(&state.buffer),
+    ]));
 
     if state.buffer.is_empty() {
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "[STATUS_LINE]",
-                Style::default().fg(Color::Green),
-            ))),
-            content,
-        );
+        frame.render_widget(p_prompt, prompt);
+        frame.render_widget(p_status, status);
     } else {
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("[dynamic] ", Style::default().fg(Color::Red)),
-                Span::raw(&state.buffer),
-            ])),
-            content,
-        );
-
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "[STATUS_LINE]",
-                Style::default().fg(Color::Green),
-            ))),
-            status,
-        );
+        frame.render_widget(p_dynamic, content);
+        frame.render_widget(p_prompt, prompt);
+        frame.render_widget(p_status, status);
     }
 }
