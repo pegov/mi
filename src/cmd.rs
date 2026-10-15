@@ -23,6 +23,8 @@ pub enum Command {
         system_prompt_preset: Vec<String>,
         #[arg(long, visible_alias = "ddsp")]
         disable_default_system_prompt: bool,
+        #[arg(long, visible_alias = "iram")]
+        ignore_root_agents_md: bool,
     },
     LocalTui {
         #[arg(long, value_name = "PROMPT")]
@@ -52,6 +54,8 @@ pub enum Command {
         system_prompt_preset: Vec<String>,
         #[arg(long, visible_alias = "ddsp")]
         disable_default_system_prompt: bool,
+        #[arg(long, visible_alias = "iram")]
+        ignore_root_agents_md: bool,
     },
     #[command(name = "image-gen")]
     ImageGen {

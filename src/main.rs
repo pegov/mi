@@ -62,6 +62,7 @@ fn run_chat(
     oneshot: Option<&str>,
     system_prompt_presets: &[String],
     disable_default_system_prompt: bool,
+    ignore_root_agents_md: bool,
 ) -> anyhow::Result<()> {
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -100,7 +101,7 @@ fn run_chat(
         system_prompt.push_str(SYSTEM_PROMPT_SKILLS_HOWTO);
     }
 
-    if let Some(agents_md) = get_root_agents_md()? {
+    if !ignore_root_agents_md && let Some(agents_md) = get_root_agents_md()? {
         if !system_prompt.is_empty() {
             system_prompt.push_str("\n\n");
         }
@@ -456,6 +457,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             profile,
             system_prompt_preset,
             disable_default_system_prompt,
+            ignore_root_agents_md,
         } => {
             let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
             let base_url = config.local.base_url;
@@ -471,6 +473,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 oneshot.as_deref(),
                 &profile.spp,
                 disable_default_system_prompt,
+                ignore_root_agents_md,
             )?;
         }
         cmd::Command::LocalTui {
@@ -495,6 +498,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             profile,
             system_prompt_preset,
             disable_default_system_prompt,
+            ignore_root_agents_md,
         } => {
             let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
             let model = model
@@ -532,6 +536,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 oneshot.as_deref(),
                 &profile.spp,
                 disable_default_system_prompt,
+                ignore_root_agents_md,
             )?
         }
         cmd::Command::ImageGen {
