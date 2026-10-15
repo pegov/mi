@@ -153,3 +153,11 @@ pub fn open_editor(user_prompt: &str) -> anyhow::Result<String> {
 
     Ok(fs::read_to_string(temp_file_path)?.trim().to_string())
 }
+
+pub fn get_root_agents_md() -> Result<Option<String>> {
+    match fs::read_to_string("AGENTS.md") {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}

@@ -20,7 +20,7 @@ use mi::{
     skill::{format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
     tui::start_tui,
-    xdg::{get_parse_config, load_system_prompt_preset},
+    xdg::{get_parse_config, get_root_agents_md, load_system_prompt_preset},
 };
 
 use clap::Parser;
@@ -98,6 +98,13 @@ fn run_chat(
 
         system_prompt.push_str("\n");
         system_prompt.push_str(SYSTEM_PROMPT_SKILLS_HOWTO);
+    }
+
+    if let Some(agents_md) = get_root_agents_md()? {
+        if !system_prompt.is_empty() {
+            system_prompt.push_str("\n\n");
+        }
+        system_prompt.push_str(&agents_md);
     }
 
     let tools: Vec<Box<dyn Tool>> = vec![
