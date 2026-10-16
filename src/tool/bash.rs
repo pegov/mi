@@ -31,7 +31,7 @@ impl Tool for BashTool {
                             },
                             "cwd": {
                                 "type": "string",
-                                "description": "working directory to run the command in"
+                                "description": "Working directory to run the command in. Omitted or empty uses the current directory"
                             }
                         },
                         "required": ["command"]
@@ -47,7 +47,7 @@ impl Tool for BashTool {
         let args: BashToolArgs = serde_json::from_str(args)?;
         let mut cmd = Command::new("bash");
         cmd.arg("-c").arg(&args.command);
-        if let Some(cwd) = &args.cwd {
+        if let Some(cwd) = args.cwd.filter(|cwd| !cwd.is_empty()) {
             cmd.current_dir(cwd);
         }
         let output = cmd.output()?;
