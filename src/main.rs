@@ -29,6 +29,31 @@ use reqwest::Url;
 use time::OffsetDateTime;
 use time::macros::format_description;
 
+#[derive(Default)]
+struct Tools {
+    defs: Vec<serde_json::Value>,
+    map: HashMap<String, Box<dyn Tool>>,
+}
+
+impl Tools {
+    fn push(&mut self, tool: Box<dyn Tool>) {
+        self.defs.push(tool.json());
+        self.map.insert(tool.name().to_owned(), tool);
+    }
+
+    fn get_mut(&mut self, name: &str) -> Option<&mut Box<dyn Tool>> {
+        self.map.get_mut(name)
+    }
+}
+
+macro_rules! make_tools {
+    ($($tool:expr),+ $(,)?) => {{
+        let mut tools = Tools::default();
+        $(tools.push(Box::new($tool));)+
+        tools
+    }};
+}
+
 fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
     let prompt = prompt.trim();
     let rest = prompt
@@ -127,19 +152,13 @@ fn run_chat(
         &skills,
     )?;
 
-    let tools: Vec<Box<dyn Tool>> = vec![
-        Box::new(tool::Read),
-        Box::new(tool::Tail),
-        Box::new(tool::WriteTool),
-        Box::new(tool::EditTool),
-        Box::new(tool::BashTool),
+    let mut tool_registry = make_tools![
+        tool::Read,
+        tool::Tail,
+        tool::WriteTool,
+        tool::EditTool,
+        tool::BashTool,
     ];
-    let mut tool_defs = Vec::with_capacity(tools.len());
-    let mut tool_map = HashMap::with_capacity(tools.len());
-    for tool in tools {
-        tool_defs.push(tool.json());
-        tool_map.insert(tool.name().to_owned(), tool);
-    }
 
     let mut stdout = std::io::stdout();
 
@@ -178,7 +197,7 @@ fn run_chat(
         provider,
         service_tier,
         reasoning_effort,
-        Some(tool_defs),
+        Some(tool_registry.defs.clone()),
         &system_prompt,
         &user_prompt,
     );
@@ -304,7 +323,7 @@ fn run_chat(
 
                 chat_tool_calls.push(chat::ToolCall::from(tool_call));
 
-                if let Some(ref mut tool_impl) = tool_map.get_mut(&tool_call.function) {
+                if let Some(tool_impl) = tool_registry.get_mut(&tool_call.function) {
                     let result = tool_impl
                         .call(&tool_call.arguments)
                         .unwrap_or_else(|e| format!("failed to call tool: {e}"));
