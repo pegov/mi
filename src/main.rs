@@ -17,7 +17,7 @@ use mi::{
     image, jev,
     mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
     printer::{self, Cursor, Printer},
-    skill::{format_skills, manually_invoke_skill, parse_skills},
+    skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
     tui::{TuiState, render_tui},
     xdg::{get_parse_config, get_root_agents_md, load_system_prompt_preset},
@@ -52,27 +52,12 @@ const SYSTEM_PROMPT_SKILLS_HOWTO: &str = "If the skill is not in the system prom
                                           and immediately tell the user that \
                                           you don't have the skill and information about it.";
 
-fn run_chat(
-    model: OpenRouterModel,
-    reasoning_effort: OpenRouterReasoning,
-    max_context: u64,
-    credits_gateway: Option<&str>,
-    chat_gateway: &str,
-    resume: bool,
-    oneshot: Option<&str>,
+fn build_system_prompt(
     system_prompt_presets: &[String],
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
-) -> anyhow::Result<()> {
-    let mut session = if let Some(credits_gateway) = credits_gateway {
-        let credits = credits::get_credits(credits_gateway)?;
-        credits::Session::from(&credits)
-    } else {
-        credits::Session::default()
-    };
-
-    let cursor = Cursor::new(max_context);
-
+    skills: &[Skill],
+) -> anyhow::Result<String> {
     let mut prompt_parts = Vec::new();
     if !disable_default_system_prompt {
         prompt_parts.push(SYSTEM_PROMPT.to_owned());
@@ -83,7 +68,6 @@ fn run_chat(
     }
     let mut system_prompt = prompt_parts.join("\n\n");
 
-    let skills = parse_skills()?;
     let mut skills_to_prompt = Vec::with_capacity(skills.len());
     for skill in skills.iter() {
         if skill.disable_model_invocation {
@@ -107,6 +91,38 @@ fn run_chat(
         }
         system_prompt.push_str(&agents_md);
     }
+
+    Ok(system_prompt)
+}
+
+fn run_chat(
+    model: OpenRouterModel,
+    reasoning_effort: OpenRouterReasoning,
+    max_context: u64,
+    credits_gateway: Option<&str>,
+    chat_gateway: &str,
+    resume: bool,
+    oneshot: Option<&str>,
+    system_prompt_presets: &[String],
+    disable_default_system_prompt: bool,
+    ignore_root_agents_md: bool,
+) -> anyhow::Result<()> {
+    let mut session = if let Some(credits_gateway) = credits_gateway {
+        let credits = credits::get_credits(credits_gateway)?;
+        credits::Session::from(&credits)
+    } else {
+        credits::Session::default()
+    };
+
+    let cursor = Cursor::new(max_context);
+
+    let skills = parse_skills()?;
+    let system_prompt = build_system_prompt(
+        system_prompt_presets,
+        disable_default_system_prompt,
+        ignore_root_agents_md,
+        &skills,
+    )?;
 
     let tools: Vec<Box<dyn Tool>> = vec![
         Box::new(tool::Read),
