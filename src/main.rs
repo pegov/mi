@@ -89,7 +89,10 @@ fn build_system_prompt(
         if !system_prompt.is_empty() {
             system_prompt.push_str("\n\n");
         }
-        system_prompt.push_str(&agents_md);
+        system_prompt.push_str(&format!(
+            "Project-specific instructions and guidelines:\n\n\
+             <project_instructions path=\"AGENTS.md\">\n{agents_md}\n</project_instructions>"
+        ));
     }
 
     Ok(system_prompt)
