@@ -132,7 +132,7 @@ impl OpenRouterModel {
     pub fn model(&self) -> &str {
         match *self {
             Self::None => "none",
-            Self::DeepSeek => "deepseek/deepseek-v4.1-flash",
+            Self::DeepSeek => "deepseek/deepseek-v4.1-flash-1017",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
             Self::MiMo => "xiaomi/mimo-v2.6-pro",
             Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
