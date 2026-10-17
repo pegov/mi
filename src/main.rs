@@ -106,7 +106,7 @@ fn build_system_prompt(
         }
         system_prompt.push_str(&format_skills(&skills_to_prompt));
 
-        system_prompt.push_str("\n");
+        system_prompt.push('\n');
         system_prompt.push_str(SYSTEM_PROMPT_SKILLS_HOWTO);
     }
 
@@ -123,18 +123,52 @@ fn build_system_prompt(
     Ok(system_prompt)
 }
 
+#[derive(Default)]
+struct ChatOptions {
+    resume: bool,
+    disable_default_system_prompt: bool,
+    ignore_root_agents_md: bool,
+    oneshot: Option<String>,
+}
+
+impl ChatOptions {
+    fn with_resume(mut self, resume: bool) -> Self {
+        self.resume = resume;
+        self
+    }
+
+    fn with_disable_default_system_prompt(mut self, value: bool) -> Self {
+        self.disable_default_system_prompt = value;
+        self
+    }
+
+    fn with_ignore_root_agents_md(mut self, value: bool) -> Self {
+        self.ignore_root_agents_md = value;
+        self
+    }
+
+    fn with_oneshot(mut self, oneshot: Option<String>) -> Self {
+        self.oneshot = oneshot;
+        self
+    }
+}
+
 fn run_chat(
     model: OpenRouterModel,
     reasoning_effort: OpenRouterReasoning,
     max_context: u64,
     credits_gateway: Option<&str>,
     chat_gateway: &str,
-    resume: bool,
-    oneshot: Option<&str>,
     system_prompt_presets: &[String],
-    disable_default_system_prompt: bool,
-    ignore_root_agents_md: bool,
+    opts: ChatOptions,
 ) -> anyhow::Result<()> {
+    let (resume, disable_default_system_prompt, ignore_root_agents_md, oneshot) = (
+        opts.resume,
+        opts.disable_default_system_prompt,
+        opts.ignore_root_agents_md,
+        opts.oneshot,
+    );
+
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
         credits::Session::from(&credits)
@@ -166,7 +200,7 @@ fn run_chat(
     stdout.flush()?;
 
     let mut prompt_history = Vec::new();
-    let mut user_prompt = if let Some(prompt) = oneshot {
+    let mut user_prompt = if let Some(ref prompt) = oneshot {
         writeln!(stdout, "{prompt}")?;
         prompt.to_owned()
     } else {
@@ -187,7 +221,7 @@ fn run_chat(
             printer.skill(name)?;
             user_prompt = res;
         } else {
-            user_prompt.push_str("\n");
+            user_prompt.push('\n');
             user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
         }
     }
@@ -250,12 +284,12 @@ fn run_chat(
                         break;
                     }
 
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
-                        if let Some(message) = value["error"]["message"].as_str() {
-                            printer.new_line()?;
-                            eprintln!("API error: {}", message);
-                            continue;
-                        }
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
+                        && let Some(message) = value["error"]["message"].as_str()
+                    {
+                        printer.new_line()?;
+                        eprintln!("API error: {}", message);
+                        continue;
                     }
 
                     match serde_json::from_str::<Answer>(data) {
@@ -277,16 +311,16 @@ fn run_chat(
 
                             a.push_delta(&v);
 
-                            if let Some(ref reasoning) = choice.delta.reasoning {
-                                if !reasoning.is_empty() {
-                                    printer.print(printer::Mode::Reasoning, &reasoning)?;
-                                }
+                            if let Some(ref reasoning) = choice.delta.reasoning
+                                && !reasoning.is_empty()
+                            {
+                                printer.print(printer::Mode::Reasoning, reasoning)?;
                             }
 
-                            if let Some(ref content) = choice.delta.content {
-                                if !content.is_empty() {
-                                    printer.print(printer::Mode::Content, &content)?;
-                                }
+                            if let Some(ref content) = choice.delta.content
+                                && !content.is_empty()
+                            {
+                                printer.print(printer::Mode::Content, content)?;
                             }
 
                             if let Some(ref finish_reason) = choice.finish_reason {
@@ -309,10 +343,7 @@ fn run_chat(
 
             let am = a.assemble();
 
-            let content = match am.content {
-                Some(content) => Some(content.clone()),
-                None => None,
-            };
+            let content = am.content.clone();
 
             let mut tools: Vec<chat::Tool> = Vec::with_capacity(am.tool_calls.len());
             let mut chat_tool_calls: Vec<chat::ToolCall> = Vec::with_capacity(am.tool_calls.len());
@@ -373,7 +404,7 @@ fn run_chat(
             HandleEventsAction::None => {}
             HandleEventsAction::Exit => return Ok(()),
         };
-        if user_prompt == "" {
+        if user_prompt.is_empty() {
             break;
         } else {
             if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
@@ -381,7 +412,7 @@ fn run_chat(
                     printer.skill(name)?;
                     user_prompt = res;
                 } else {
-                    user_prompt.push_str("\n");
+                    user_prompt.push('\n');
                     user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
                 }
             }
@@ -479,7 +510,7 @@ fn main() -> anyhow::Result<()> {
             }
             Err(e) => {
                 reset_terminal();
-                return Err(e);
+                Err(e)
             }
         },
     }
@@ -501,17 +532,20 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
+            let opts = ChatOptions::default()
+                .with_resume(resume)
+                .with_disable_default_system_prompt(disable_default_system_prompt)
+                .with_ignore_root_agents_md(ignore_root_agents_md)
+                .with_oneshot(oneshot);
+
             run_chat(
                 OpenRouterModel::None,
                 OpenRouterReasoning::None,
                 0,
                 None,
                 &chat_completions_url,
-                resume,
-                oneshot.as_deref(),
                 &profile.spp,
-                disable_default_system_prompt,
-                ignore_root_agents_md,
+                opts,
             )?;
         }
         cmd::Command::LocalTui {
@@ -550,7 +584,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 model.as_str(),
                 model.model(),
                 reasoning.as_str(),
-                model.service_tier().as_deref().unwrap_or("default"),
+                model.service_tier().unwrap_or("default"),
             );
             let base_url = config.openrouter.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
@@ -564,17 +598,20 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let models_url = format!("{base_url}/models");
             let max_context = get_max_context(&models_url, &model)?;
 
+            let opts = ChatOptions::default()
+                .with_resume(resume)
+                .with_disable_default_system_prompt(disable_default_system_prompt)
+                .with_ignore_root_agents_md(ignore_root_agents_md)
+                .with_oneshot(oneshot);
+
             run_chat(
                 model,
                 reasoning,
                 max_context,
                 Some(&credits_url),
                 &chat_completions_url,
-                resume,
-                oneshot.as_deref(),
                 &profile.spp,
-                disable_default_system_prompt,
-                ignore_root_agents_md,
+                opts,
             )?
         }
         cmd::Command::ImageGen {

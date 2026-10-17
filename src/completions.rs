@@ -38,12 +38,12 @@ pub struct ToolCallFunction {
 
 impl Message {
     pub fn create(role: Role, content: String) -> Self {
-        return Self {
+        Self {
             role: Some(role),
             content: Some(content),
             reasoning: None,
             tool_calls: None,
-        };
+        }
     }
 }
 

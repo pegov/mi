@@ -141,7 +141,7 @@ pub fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option
             continue;
         }
 
-        if args != "" {
+        if !args.is_empty() {
             return Some(format!(
                 "[Manual skill invocation]\nAuto-inserting SKILL.md text:\n{}\nARGUMENTS: {}",
                 skill.full.trim(),

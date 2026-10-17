@@ -16,7 +16,7 @@ fn copy_via_osc52(text: &str) -> io::Result<()> {
 
 fn copy_via_xclip(user_prompt: &str) -> anyhow::Result<()> {
     let mut cmd = Command::new("xclip")
-        .args(&["-selection", "clipboard"])
+        .args(["-selection", "clipboard"])
         .stdin(Stdio::piped())
         .spawn()?;
 

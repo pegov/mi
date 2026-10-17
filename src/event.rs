@@ -41,7 +41,7 @@ pub fn handle_events(
             if key_event.code == KeyCode::Char('y')
                 && key_event.modifiers.contains(KeyModifiers::CONTROL)
             {
-                copy_user_prompt_to_clipboard(&user_prompt)?;
+                copy_user_prompt_to_clipboard(user_prompt)?;
                 continue;
             }
 
@@ -61,7 +61,7 @@ pub fn handle_events(
                 queue!(stdout, MoveToColumn(2), Clear(ClearType::FromCursorDown))?;
                 stdout.flush()?;
 
-                *user_prompt = open_editor(&user_prompt)?;
+                *user_prompt = open_editor(user_prompt)?;
                 for char in user_prompt.trim().chars() {
                     if char == '\n' {
                         write!(stdout, "\r\n")?;
@@ -150,7 +150,7 @@ pub fn handle_events(
                 if let KeyCode::Char(c) = key_event.code {
                     let up = c.to_uppercase().to_string();
                     user_prompt.push_str(&up);
-                    write!(stdout, "{}", &up)?;
+                    write!(stdout, "{}", up)?;
                     stdout.flush()?;
                 }
                 continue;
@@ -182,5 +182,5 @@ pub fn handle_events(
     stdout.write_all("\n".as_bytes())?;
     stdout.flush()?;
 
-    return Ok(HandleEventsAction::None);
+    Ok(HandleEventsAction::None)
 }

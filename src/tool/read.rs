@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use super::{Tool, tool::format_lines};
+use super::{Tool, format_lines};
 
 #[derive(Deserialize)]
 pub struct ReadArgs {
@@ -70,10 +70,10 @@ impl Tool for Read {
 
         let lines: Vec<&str> = content.lines().collect();
         let start = args.from_line.unwrap_or(1);
-        if let Some(end) = args.to_line {
-            if start > end {
-                anyhow::bail!("from_line must not be greater than to_line");
-            }
+        if let Some(end) = args.to_line
+            && start > end
+        {
+            anyhow::bail!("from_line must not be greater than to_line");
         }
 
         let first = (start - 1).min(lines.len());

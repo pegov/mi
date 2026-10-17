@@ -144,7 +144,7 @@ pub fn open_editor(user_prompt: &str) -> anyhow::Result<String> {
     fs::write(temp_file_path, user_prompt)?;
 
     let status = Command::new("nvim")
-        .args(&["-c", "normal! G$", &temp_file_path.to_string_lossy()])
+        .args(["-c", "normal! G$", &temp_file_path.to_string_lossy()])
         .status()?;
 
     if !status.success() {

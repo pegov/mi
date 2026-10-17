@@ -28,7 +28,7 @@ pub fn render_tui(state: &mut TuiState) -> anyhow::Result<()> {
                 terminal.insert_before(1, |buf| {
                     let msg = Line::from(vec![
                         Span::styled("[scroll] ", Style::default().fg(Color::Cyan)),
-                        Span::raw(format!("{}", &state.buffer)),
+                        Span::raw(&state.buffer),
                     ]);
                     Paragraph::new(msg).render(buf.area, buf);
                 })?;
@@ -45,7 +45,7 @@ pub fn render_tui(state: &mut TuiState) -> anyhow::Result<()> {
         terminal.insert_before(1, |buf| {
             let msg = Line::from(vec![
                 Span::styled("[scroll] ", Style::default().fg(Color::Cyan)),
-                Span::raw(format!("{}", &state.buffer)),
+                Span::raw(&state.buffer),
             ]);
             Paragraph::new(msg).render(buf.area, buf);
         })?;

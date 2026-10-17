@@ -32,13 +32,13 @@ impl Session {
     }
 
     pub fn save_tokens(&mut self, input: u64, output: u64, cache: u64) {
-        self.input_tokens = self.input_tokens + input;
-        self.output_tokens = self.output_tokens + output;
-        self.cache_tokens = self.cache_tokens + cache;
+        self.input_tokens += input;
+        self.output_tokens += output;
+        self.cache_tokens += cache;
     }
 
     pub fn save_cost(&mut self, cost: f64) {
-        self.curr_balance = self.curr_balance - cost;
+        self.curr_balance -= cost;
     }
 
     pub fn update(&mut self, credits: &Credits) {

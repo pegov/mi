@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use super::{Tool, tool::format_lines};
+use super::{Tool, format_lines};
 
 #[derive(Deserialize)]
 struct TailArgs {

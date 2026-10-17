@@ -1,4 +1,4 @@
-pub(super) fn format_lines(lines: &[&str], first_line: usize, numbered: bool) -> String {
+pub fn format_lines(lines: &[&str], first_line: usize, numbered: bool) -> String {
     let mut output = String::new();
     for (offset, line) in lines.iter().enumerate() {
         if offset != 0 {
