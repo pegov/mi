@@ -197,7 +197,7 @@ fn run_chat(
         provider,
         service_tier,
         reasoning_effort,
-        Some(tool_registry.defs.clone()),
+        tool_registry.defs.clone(),
         &system_prompt,
         &user_prompt,
     );
@@ -400,7 +400,7 @@ fn get_max_context(url: &str, model: &OpenRouterModel) -> anyhow::Result<u64> {
         .build()?;
 
     let model_str = model.model();
-    let provider = model.provider().unwrap();
+    let provider = model.provider();
     let provider = provider
         .get("order")
         .unwrap()

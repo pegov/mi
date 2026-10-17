@@ -91,6 +91,7 @@ pub enum Command {
 pub enum OpenRouterModel {
     #[default]
     #[serde(rename = "none")]
+    #[value(name = "none")]
     None,
     #[serde(rename = "deepseek")]
     #[value(name = "deepseek")]
@@ -140,39 +141,44 @@ impl OpenRouterModel {
         }
     }
 
-    pub fn provider(&self) -> Option<serde_json::Value> {
+    pub fn provider(&self) -> serde_json::Value {
         match *self {
-            Self::None => None,
-            Self::DeepSeek => Some(serde_json::json!(
+            Self::None => serde_json::json!(
+                {
+                    "order": [],
+                    "allow_fallbacks": false
+                }
+            ),
+            Self::DeepSeek => serde_json::json!(
                 {
                     "order": ["deepseek"],
                     "allow_fallbacks": false
                 }
-            )),
-            Self::GlmFlash => Some(serde_json::json!(
+            ),
+            Self::GlmFlash => serde_json::json!(
             {
                 "order": ["z-ai/fp8"],
                 "allow_fallbacks": false
             }
-            )),
-            Self::MiMo => Some(serde_json::json!(
+            ),
+            Self::MiMo => serde_json::json!(
             {
                 "order": ["xiaomi/fp8"],
                 "allow_fallbacks": false
             }
-            )),
-            Self::OpenAILunaFlex | Self::OpenAISolFlex => Some(serde_json::json!(
+            ),
+            Self::OpenAILunaFlex | Self::OpenAISolFlex => serde_json::json!(
             {
                 "order": ["openai/flex"],
                 "allow_fallbacks": false
             }
-            )),
-            Self::OpenAILuna | Self::OpenAISol => Some(serde_json::json!(
+            ),
+            Self::OpenAILuna | Self::OpenAISol => serde_json::json!(
             {
                 "order": ["openai"],
                 "allow_fallbacks": false
             }
-            )),
+            ),
         }
     }
 
