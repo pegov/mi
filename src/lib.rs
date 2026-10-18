@@ -8,6 +8,7 @@ pub mod credits;
 pub mod event;
 pub mod image;
 pub mod jev;
+pub mod log;
 pub mod mcp;
 pub mod printer;
 pub mod skill;

@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
-    fs::File,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{BufRead, BufReader, Write},
     sync::Arc,
     thread,
     time::Duration,
@@ -14,7 +13,7 @@ use mi::{
     completions::{Answer, FinishReason},
     credits,
     event::{HandleEventsAction, handle_events},
-    image, jev,
+    image, jev, log,
     mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
     printer::{self, Cursor, Printer},
     skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
@@ -26,8 +25,6 @@ use mi::{
 use clap::Parser;
 use crossterm::{ExecutableCommand, event::DisableBracketedPaste, terminal::disable_raw_mode};
 use reqwest::Url;
-use time::OffsetDateTime;
-use time::macros::format_description;
 
 #[derive(Default)]
 struct Tools {
@@ -242,12 +239,7 @@ fn run_chat(
     loop {
         loop {
             printer.hide_cursor()?;
-            let now = OffsetDateTime::now_utc();
-            let format = format_description!("[year]-[month]-[day]-[hour]-[minute]-[second]");
-            let formatted_time = now.format(&format)?;
-            let filename = format!("/tmp/{}-sse.log", formatted_time);
-            let raw_log_file = File::create(filename)?;
-            let mut raw_log_writer = BufWriter::new(raw_log_file);
+            let mut raw_log_writer = log::create_sse_log()?;
 
             let mut a = Assembler::default();
 
