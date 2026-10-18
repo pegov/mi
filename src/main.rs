@@ -236,6 +236,10 @@ fn run_chat(
         chat.resume(&user_prompt)?;
     }
 
+    let client = reqwest::blocking::ClientBuilder::default()
+        .timeout(Duration::from_secs(600))
+        .build()?;
+
     loop {
         loop {
             printer.hide_cursor()?;
@@ -243,9 +247,6 @@ fn run_chat(
 
             let mut a = Assembler::default();
 
-            let client = reqwest::blocking::ClientBuilder::default()
-                .timeout(Duration::from_secs(600))
-                .build()?;
             let res = client.post(chat_gateway).json(&chat).send()?;
 
             if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
