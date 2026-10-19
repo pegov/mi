@@ -566,12 +566,10 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             ignore_root_agents_md,
         } => {
             let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
-            let model = model
-                .or(profile.model)
-                .unwrap_or(OpenRouterModel::OpenAISolFlex);
+            let model = model.or(profile.model).unwrap_or(OpenRouterModel::DeepSeek);
             let reasoning = reasoning
                 .or(profile.reasoning)
-                .unwrap_or(OpenRouterReasoning::Medium);
+                .unwrap_or(OpenRouterReasoning::Low);
             println!(
                 "OpenRouter | model: {} ({}) | reasoning: {} | service_tier: {}",
                 model.as_str(),
