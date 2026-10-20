@@ -63,6 +63,23 @@ fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
     Some((name, args.trim_start()))
 }
 
+fn apply_skill(
+    skills: &[Skill],
+    user_prompt: &mut String,
+    printer: &mut Printer,
+) -> anyhow::Result<()> {
+    if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
+        if let Some(res) = manually_invoke_skill(&skills, name, args) {
+            printer.skill(name)?;
+            *user_prompt = res;
+        } else {
+            user_prompt.push('\n');
+            user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
+        }
+    }
+    Ok(())
+}
+
 const SYSTEM_PROMPT: &str = "You are an expert coding assistant operating inside mi, \
                             a simple and minimal coding agent harness.";
 
@@ -213,15 +230,7 @@ fn run_chat(
 
     let (model, provider, service_tier) = (model.model(), model.provider(), model.service_tier());
 
-    if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
-        if let Some(res) = manually_invoke_skill(&skills, name, args) {
-            printer.skill(name)?;
-            user_prompt = res;
-        } else {
-            user_prompt.push('\n');
-            user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
-        }
-    }
+    apply_skill(&skills, &mut user_prompt, &mut printer)?;
 
     let mut chat = chat::Chat::new(
         model,
@@ -400,15 +409,7 @@ fn run_chat(
         if user_prompt.is_empty() {
             break;
         } else {
-            if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
-                if let Some(res) = manually_invoke_skill(&skills, name, args) {
-                    printer.skill(name)?;
-                    user_prompt = res;
-                } else {
-                    user_prompt.push('\n');
-                    user_prompt.push_str(&format!("Failed to find skill by name: {name}."));
-                }
-            }
+            apply_skill(&skills, &mut user_prompt, &mut printer)?;
             let sm = chat::SimpleMessage::new(&user_prompt);
             chat.messages.push(chat::Message::User(sm));
         }
