@@ -19,7 +19,7 @@ use mi::{
     skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
     tui::{TuiState, render_tui},
-    xdg::{get_parse_config, get_root_agents_md, load_system_prompt_preset},
+    xdg::{get_root_agents_md, load_system_prompt_preset, parse_config},
 };
 
 use clap::Parser;
@@ -511,7 +511,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn start(cli: Cli) -> anyhow::Result<()> {
-    let config = get_parse_config()?;
+    let config = parse_config()?;
 
     match cli.command {
         cmd::Command::Local {

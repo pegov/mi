@@ -131,7 +131,7 @@ pub fn get_session_path() -> Result<PathBuf> {
     Ok(dir.join("mi").join("session.json"))
 }
 
-pub fn get_parse_config() -> Result<Config> {
+pub fn parse_config() -> Result<Config> {
     let config_path = get_config_dir()?.join("config.json");
     let config_str = fs::read_to_string(&config_path)?;
     Ok(serde_json::from_str(&config_str)?)
