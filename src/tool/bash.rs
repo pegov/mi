@@ -89,8 +89,10 @@ impl Tool for BashTool {
 
         if should_cut_stdout || should_cut_stderr {
             let temp_file_path = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
-
-            fs::write(&temp_file_path, &combined)?;
+            fs::write(
+                &temp_file_path,
+                [stdout.as_ref(), stderr.as_ref()].join("\n"),
+            )?;
 
             if !stdout.is_empty() && should_cut_stdout {
                 stdout = format_cut(&stdout, out_lines, self.stdout_last_n_lines).into();
