@@ -205,7 +205,7 @@ fn run_chat(
         tool::Tail,
         tool::WriteTool,
         tool::EditTool,
-        tool::BashTool::new(40, 40),
+        tool::BashTool::new(80, 80),
     ];
 
     let mut stdout = std::io::stdout();
