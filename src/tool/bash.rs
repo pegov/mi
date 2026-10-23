@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path, process::Command};
 
 use serde::Deserialize;
 
@@ -56,8 +56,6 @@ impl Tool for BashTool {
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
-        use std::process::Command;
-
         let args: BashToolArgs = serde_json::from_str(args)?;
         let mut cmd = Command::new("bash");
         cmd.arg("-c").arg(&args.command);
@@ -70,24 +68,10 @@ impl Tool for BashTool {
         let mut stderr = String::from_utf8_lossy(&output.stderr);
         let exit_code = output.status.code().unwrap_or(-1);
 
-        let mut combined = if stdout.is_empty() && stderr.is_empty() {
-            format!("Exit code: {}", exit_code)
-        } else if stdout.is_empty() {
-            format!("Exit code: {}\n{}", exit_code, stderr)
-        } else if stderr.is_empty() {
-            format!("Exit code: {}\n{}", exit_code, stdout)
-        } else {
-            format!(
-                "Exit code: {}\nSTDOUT:\n{}\nSTDERR:\n{}",
-                exit_code, stdout, stderr
-            )
-        };
+        let should_cut_stdout = stdout.lines().count() > self.stdout_last_n_lines;
+        let should_cut_stderr = stderr.lines().count() > self.stderr_last_n_lines;
 
-        let (out_lines, err_lines) = (lines_len(&stdout), lines_len(&stderr));
-        let should_cut_stdout = out_lines > self.stdout_last_n_lines;
-        let should_cut_stderr = err_lines > self.stderr_last_n_lines;
-
-        if should_cut_stdout || should_cut_stderr {
+        let combined = if should_cut_stdout || should_cut_stderr {
             let temp_file_path = tempfile::NamedTempFile::new()?.into_temp_path().keep()?;
             fs::write(
                 &temp_file_path,
@@ -95,55 +79,50 @@ impl Tool for BashTool {
             )?;
 
             if !stdout.is_empty() && should_cut_stdout {
-                stdout = format_cut(&stdout, out_lines, self.stdout_last_n_lines).into();
+                stdout = format_cut(&stdout, self.stdout_last_n_lines).into();
             }
 
             if !stderr.is_empty() && should_cut_stderr {
-                stderr = format_cut(&stderr, err_lines, self.stderr_last_n_lines).into();
+                stderr = format_cut(&stderr, self.stderr_last_n_lines).into();
             }
 
-            combined = if stdout.is_empty() {
-                format!(
-                    "Full output file path: {}\nExit code: {}\n{}\n",
-                    temp_file_path.display(),
-                    exit_code,
-                    stderr,
-                )
-            } else if stderr.is_empty() {
-                format!(
-                    "Full output file path: {}\nExit code: {}\n{}",
-                    temp_file_path.display(),
-                    exit_code,
-                    stdout,
-                )
-            } else {
-                format!(
-                    "Full output file path: {}\nExit code: {}\nSTDOUT:\n{}\nSTDERR:\n{}",
-                    temp_file_path.display(),
-                    exit_code,
-                    stdout,
-                    stderr,
-                )
-            };
-        }
+            format_output(Some(&temp_file_path), exit_code, &stdout, &stderr)
+        } else {
+            format_output(None, exit_code, &stdout, &stderr)
+        };
 
         Ok(combined)
     }
 }
 
-fn lines_len(s: &str) -> usize {
-    s.lines().count()
+fn format_output(path: Option<&Path>, exit_code: i32, stdout: &str, stderr: &str) -> String {
+    let header = match path {
+        Some(path) => format!(
+            "Full output file path: {}\nExit code: {}",
+            path.display(),
+            exit_code
+        ),
+        None => format!("Exit code: {}", exit_code),
+    };
+    if stdout.is_empty() && stderr.is_empty() {
+        header
+    } else if stdout.is_empty() {
+        format!("{}\n{}", header, stderr)
+    } else if stderr.is_empty() {
+        format!("{}\n{}", header, stdout)
+    } else {
+        format!("{}\nSTDOUT:\n{}\nSTDERR:\n{}", header, stdout, stderr)
+    }
 }
 
-fn format_cut(s: &str, was: usize, cut: usize) -> String {
-    let mut lines: Vec<&str> = s.lines().rev().take(cut).collect();
-    lines.reverse();
-    let s = lines.join("\n");
-    let n = was - cut;
+fn format_cut(s: &str, cut: usize) -> String {
+    let lines: Vec<&str> = s.lines().collect();
+    let n = lines.len() - cut;
+    let s = lines[lines.len() - cut..].join("\n");
     let line_str = if n == 1 {
-        "1 line was"
+        "1 line was".to_string()
     } else {
-        &format!("{n} lines were")
+        format!("{n} lines were")
     };
     format!("|Output is too long, {line_str} cut off|\n...\n{s}")
 }
