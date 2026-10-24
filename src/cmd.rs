@@ -111,6 +111,9 @@ pub enum OpenRouterModel {
     #[serde(rename = "sol")]
     #[value(name = "sol")]
     OpenAISol,
+    #[serde(rename = "kimi")]
+    #[value(name = "kimi")]
+    Kimi,
 }
 
 impl OpenRouterModel {
@@ -123,6 +126,7 @@ impl OpenRouterModel {
             Self::OpenAISolFlex => "sol/flex",
             Self::OpenAILuna => "luna",
             Self::OpenAISol => "sol",
+            Self::Kimi => "kimi",
         }
     }
 
@@ -133,6 +137,7 @@ impl OpenRouterModel {
             Self::GlmFlash => "z-ai/glm-5.3-flash",
             Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
             Self::OpenAISolFlex | Self::OpenAISol => "openai/gpt-6.1-sol",
+            Self::Kimi => "moonshotai/kimi-k3.1-pro",
         }
     }
 
@@ -165,6 +170,12 @@ impl OpenRouterModel {
             Self::OpenAILuna | Self::OpenAISol => serde_json::json!(
             {
                 "order": ["openai"],
+                "allow_fallbacks": false
+            }
+            ),
+            Self::Kimi => serde_json::json!(
+            {
+                "order": ["moonshotai/mxfp4"],
                 "allow_fallbacks": false
             }
             ),
