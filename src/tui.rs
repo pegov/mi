@@ -1,8 +1,13 @@
-use std::io;
+use std::{
+    io,
+    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    thread,
+    time::{Duration, Instant},
+};
 
 use crossterm::{
     ExecutableCommand, SynchronizedUpdate,
-    event::{self, KeyboardEnhancementFlags},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags},
 };
 use ratatui::{
     DefaultTerminal, TerminalOptions, Viewport,
@@ -12,13 +17,15 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::printer::Mode;
+use crate::{chan::SPINNER, printer::Mode};
 
 pub struct Tui {
     pub terminal: DefaultTerminal,
     pub prompt: String,
     pub status: String,
     pub accepting_input: bool,
+    pub activity: Option<&'static str>,
+    started: Instant,
     buffer: String,
     mode: Mode,
     style: Style,
@@ -64,6 +71,8 @@ impl Tui {
             prompt: String::new(),
             status,
             accepting_input: false,
+            activity: None,
+            started: Instant::now(),
             buffer: String::new(),
             mode: Mode::None,
             style: Style::default(),
@@ -82,7 +91,21 @@ impl Tui {
     fn draw_inner(&mut self) -> anyhow::Result<()> {
         self.terminal.autoresize()?;
         let size = self.terminal.size()?;
-        let input = wrap_lines(&format!("> {}", self.prompt), size.width, Style::default());
+        let text = if self.accepting_input {
+            format!("> {}", self.prompt)
+        } else if let Some(activity) = self.activity {
+            let spinner =
+                SPINNER[(self.started.elapsed().as_millis() / 50) as usize % SPINNER.len()];
+            format!("{spinner} {activity}")
+        } else {
+            String::new()
+        };
+        let style = if self.accepting_input {
+            Style::default()
+        } else {
+            Style::default().fg(Color::Rgb(255, 165, 0))
+        };
+        let input = wrap_lines(&text, size.width, style);
         let height = (input.len().min(usize::from(u16::MAX - 2)) as u16 + 2).min(size.height);
         let area = self.terminal.get_frame().area();
         if area.height != height {
@@ -121,6 +144,36 @@ impl Tui {
             );
         })?;
         Ok(())
+    }
+
+    pub fn recv<T>(&mut self, rx: &Receiver<T>) -> anyhow::Result<Option<T>> {
+        loop {
+            if event::poll(Duration::ZERO)?
+                && let Event::Key(key) = event::read()?
+                && key.kind != KeyEventKind::Release
+                && key.code == KeyCode::Char('c')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                return Err(io::Error::from(io::ErrorKind::Interrupted).into());
+            }
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(value) => return Ok(Some(value)),
+                Err(RecvTimeoutError::Disconnected) => return Ok(None),
+                Err(RecvTimeoutError::Timeout) => self.draw()?,
+            }
+        }
+    }
+
+    pub fn run<T: Send>(&mut self, work: impl FnOnce() -> T + Send) -> anyhow::Result<T> {
+        self.draw()?;
+        thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            scope.spawn(move || {
+                let _ = tx.send(work());
+            });
+            self.recv(&rx)?
+                .ok_or_else(|| anyhow::anyhow!("worker disconnected"))
+        })
     }
 
     pub fn write(&mut self, text: &str) -> anyhow::Result<()> {

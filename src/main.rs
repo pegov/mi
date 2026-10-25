@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    sync::Arc,
+    sync::{Arc, mpsc},
     thread,
     time::Duration,
 };
@@ -29,16 +29,16 @@ use reqwest::Url;
 #[derive(Default)]
 struct Tools {
     defs: Vec<serde_json::Value>,
-    map: HashMap<String, Box<dyn Tool>>,
+    map: HashMap<String, Box<dyn Tool + Send>>,
 }
 
 impl Tools {
-    fn push(&mut self, tool: Box<dyn Tool>) {
+    fn push(&mut self, tool: Box<dyn Tool + Send>) {
         self.defs.push(tool.json());
         self.map.insert(tool.name().to_owned(), tool);
     }
 
-    fn get_mut(&mut self, name: &str) -> Option<&mut Box<dyn Tool>> {
+    fn get_mut(&mut self, name: &str) -> Option<&mut Box<dyn Tool + Send>> {
         self.map.get_mut(name)
     }
 }
@@ -275,156 +275,202 @@ fn run_chat(
         chat.messages
             .push(chat::Message::User(chat::SimpleMessage::new(&user_prompt)));
 
-        loop {
-            tui.accepting_input = false;
-            tui.draw()?;
-            let mut raw_log_writer = log::create_sse_log()?;
+        let generation = (|| -> anyhow::Result<()> {
+            loop {
+                tui.accepting_input = false;
+                tui.activity = Some("Thinking");
+                tui.draw()?;
+                let mut raw_log_writer = log::create_sse_log()?;
 
-            let mut a = Assembler::default();
+                let mut a = Assembler::default();
 
-            let res = client.post(chat_gateway).json(&chat).send()?;
+                let request = client.post(chat_gateway).json(&chat).build()?;
+                let client = client.clone();
+                let (tx, rx) = mpsc::channel();
+                thread::spawn(move || {
+                    let _ = tx.send(client.execute(request));
+                });
+                let res = tui
+                    .recv(&rx)?
+                    .ok_or_else(|| anyhow::anyhow!("worker disconnected"))??;
 
-            if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                if let Some(retry_after) = res.headers().get(reqwest::header::RETRY_AFTER) {
-                    tui.write(&format!("Retry-After: {retry_after:?}\n"))?;
-                } else {
-                    tui.write("no header\n")?;
-                }
-            }
-            let res = res.error_for_status()?;
-
-            let reader = BufReader::new(res);
-
-            for line in reader.lines() {
-                let line = line?;
-
-                writeln!(raw_log_writer, "{}", line)?;
-                raw_log_writer.flush()?;
-
-                let line = line.trim();
-
-                if line.is_empty() {
-                    continue;
-                }
-
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data == "[DONE]" {
-                        break;
+                if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    if let Some(retry_after) = res.headers().get(reqwest::header::RETRY_AFTER) {
+                        tui.write(&format!("Retry-After: {retry_after:?}\n"))?;
+                    } else {
+                        tui.write("no header\n")?;
                     }
+                }
+                let res = res.error_for_status()?;
 
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
-                        && let Some(message) = value["error"]["message"].as_str()
-                    {
-                        tui.finish()?;
-                        tui.write(&format!("API error: {message}\n"))?;
+                let (tx, rx) = mpsc::channel();
+                thread::spawn(move || {
+                    for line in BufReader::new(res).lines() {
+                        if tx.send(line).is_err() {
+                            break;
+                        }
+                    }
+                });
+
+                while let Some(line) = tui.recv(&rx)? {
+                    let line = line?;
+
+                    writeln!(raw_log_writer, "{}", line)?;
+                    raw_log_writer.flush()?;
+
+                    let line = line.trim();
+
+                    if line.is_empty() {
                         continue;
                     }
 
-                    match serde_json::from_str::<Answer>(data) {
-                        Ok(v) => {
-                            if let Some(ref usage) = v.usage {
-                                session.save_tokens(
-                                    usage.prompt_tokens,
-                                    usage.completion_tokens,
-                                    usage.prompt_tokens_details.cached_tokens,
-                                );
-                                if let Some(cost) = usage.cost {
-                                    session.save_cost(cost);
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data == "[DONE]" {
+                            break;
+                        }
+
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
+                            && let Some(message) = value["error"]["message"].as_str()
+                        {
+                            tui.finish()?;
+                            tui.write(&format!("API error: {message}\n"))?;
+                            continue;
+                        }
+
+                        match serde_json::from_str::<Answer>(data) {
+                            Ok(v) => {
+                                if let Some(ref usage) = v.usage {
+                                    session.save_tokens(
+                                        usage.prompt_tokens,
+                                        usage.completion_tokens,
+                                        usage.prompt_tokens_details.cached_tokens,
+                                    );
+                                    if let Some(cost) = usage.cost {
+                                        session.save_cost(cost);
+                                    }
+                                }
+
+                                tui.status = cursor
+                                    .to_string(&session)
+                                    .trim_end_matches("\n> ")
+                                    .to_owned();
+                                let Some(choice) = v.choices.first() else {
+                                    tui.draw()?;
+                                    continue;
+                                };
+
+                                a.push_delta(&v);
+
+                                if let Some(ref reasoning) = choice.delta.reasoning
+                                    && !reasoning.is_empty()
+                                {
+                                    tui.activity = Some("Thinking");
+                                    tui.print(printer::Mode::Reasoning, reasoning)?;
+                                }
+
+                                if let Some(ref content) = choice.delta.content
+                                    && !content.is_empty()
+                                {
+                                    tui.activity = Some("Generating");
+                                    tui.print(printer::Mode::Content, content)?;
+                                }
+
+                                if choice
+                                    .delta
+                                    .tool_calls
+                                    .as_ref()
+                                    .is_some_and(|calls| !calls.is_empty())
+                                {
+                                    tui.activity = Some("Tool-calling");
+                                }
+
+                                if let Some(FinishReason::Stop | FinishReason::ToolCalls) =
+                                    choice.finish_reason
+                                {
+                                    tui.finish()?;
+                                } else {
+                                    tui.draw()?;
                                 }
                             }
-
-                            tui.status = cursor
-                                .to_string(&session)
-                                .trim_end_matches("\n> ")
-                                .to_owned();
-                            let Some(choice) = v.choices.first() else {
-                                tui.draw()?;
-                                continue;
-                            };
-
-                            a.push_delta(&v);
-
-                            if let Some(ref reasoning) = choice.delta.reasoning
-                                && !reasoning.is_empty()
-                            {
-                                tui.print(printer::Mode::Reasoning, reasoning)?;
-                            }
-
-                            if let Some(ref content) = choice.delta.content
-                                && !content.is_empty()
-                            {
-                                tui.print(printer::Mode::Content, content)?;
-                            }
-
-                            if let Some(FinishReason::Stop | FinishReason::ToolCalls) =
-                                choice.finish_reason
-                            {
+                            Err(e) => {
                                 tui.finish()?;
-                            } else {
-                                tui.draw()?;
+                                tui.write(&format!("Failed to parse json: {e}\n"))?;
                             }
-                        }
-                        Err(e) => {
-                            tui.finish()?;
-                            tui.write(&format!("Failed to parse json: {e}\n"))?;
                         }
                     }
                 }
-            }
 
-            if let Some(credits_gateway) = credits_gateway {
-                let credits = credits::get_credits(credits_gateway)?;
-                session.update(&credits);
-            }
-
-            tui.status = cursor
-                .to_string(&session)
-                .trim_end_matches("\n> ")
-                .to_owned();
-            tui.finish()?;
-
-            let am = a.assemble();
-
-            let content = am.content.clone();
-
-            let mut tools: Vec<chat::Tool> = Vec::with_capacity(am.tool_calls.len());
-            let mut chat_tool_calls: Vec<chat::ToolCall> = Vec::with_capacity(am.tool_calls.len());
-
-            for tool_call in am.tool_calls.iter() {
-                tui.tool(&tool_call.function, &tool_call.arguments)?;
-
-                chat_tool_calls.push(chat::ToolCall::from(tool_call));
-
-                if let Some(tool_impl) = tool_registry.get_mut(&tool_call.function) {
-                    let result = tool_impl
-                        .call(&tool_call.arguments)
-                        .unwrap_or_else(|e| format!("failed to call tool: {e}"));
-                    tui.print(printer::Mode::Content, &result)?;
-                    tui.finish()?;
-                    tools.push(chat::Tool::new(tool_call.id.clone(), result));
-                } else {
-                    tools.push(chat::Tool::new(
-                        tool_call.id.clone(),
-                        "Wrong tool name! Tool not found!".into(),
-                    ));
+                if let Some(credits_gateway) = credits_gateway {
+                    let credits = tui.run(|| credits::get_credits(credits_gateway))??;
+                    session.update(&credits);
                 }
+
+                tui.status = cursor
+                    .to_string(&session)
+                    .trim_end_matches("\n> ")
+                    .to_owned();
+                tui.finish()?;
+
+                let am = a.assemble();
+
+                let content = am.content.clone();
+
+                let mut tools: Vec<chat::Tool> = Vec::with_capacity(am.tool_calls.len());
+                let mut chat_tool_calls: Vec<chat::ToolCall> =
+                    Vec::with_capacity(am.tool_calls.len());
+
+                for tool_call in am.tool_calls.iter() {
+                    tui.activity = Some("Tool-calling");
+                    tui.tool(&tool_call.function, &tool_call.arguments)?;
+
+                    chat_tool_calls.push(chat::ToolCall::from(tool_call));
+
+                    if let Some(tool_impl) = tool_registry.get_mut(&tool_call.function) {
+                        let result = tui
+                            .run(|| tool_impl.call(&tool_call.arguments))?
+                            .unwrap_or_else(|e| format!("failed to call tool: {e}"));
+                        tui.print(printer::Mode::Content, &result)?;
+                        tui.finish()?;
+                        tools.push(chat::Tool::new(tool_call.id.clone(), result));
+                    } else {
+                        tools.push(chat::Tool::new(
+                            tool_call.id.clone(),
+                            "Wrong tool name! Tool not found!".into(),
+                        ));
+                    }
+                }
+
+                let assistant_message = chat::AssistantMessage::new(content, chat_tool_calls);
+                chat.messages
+                    .push(chat::Message::Assistant(assistant_message));
+                chat.save_messages()?;
+
+                if tools.is_empty() {
+                    break;
+                }
+
+                for tool in tools {
+                    chat.messages.push(chat::Message::Tool(tool));
+                }
+                chat.save_messages()?;
             }
 
-            let assistant_message = chat::AssistantMessage::new(content, chat_tool_calls);
-            chat.messages
-                .push(chat::Message::Assistant(assistant_message));
-            chat.save_messages()?;
-
-            if tools.is_empty() {
-                break;
+            Ok(())
+        })();
+        if let Err(error) = generation {
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|error| error.kind() == std::io::ErrorKind::Interrupted)
+            {
+                tui.activity = None;
+                tui.finish()?;
+                tui.write("Interrupted\n")?;
+                chat.save_messages()?;
+            } else {
+                return Err(error);
             }
-
-            for tool in tools {
-                chat.messages.push(chat::Message::Tool(tool));
-            }
-            chat.save_messages()?;
         }
-
+        tui.activity = None;
         if oneshot.is_some() {
             break;
         }
