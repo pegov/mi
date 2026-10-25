@@ -1,7 +1,7 @@
 use std::io;
 
 use crossterm::{
-    ExecutableCommand,
+    ExecutableCommand, SynchronizedUpdate,
     event::{self, KeyboardEnhancementFlags},
 };
 use ratatui::{
@@ -76,6 +76,10 @@ impl Tui {
     }
 
     pub fn draw(&mut self) -> anyhow::Result<()> {
+        io::stdout().sync_update(|_| self.draw_inner())?
+    }
+
+    fn draw_inner(&mut self) -> anyhow::Result<()> {
         self.terminal.autoresize()?;
         let size = self.terminal.size()?;
         let input = wrap_lines(&format!("> {}", self.prompt), size.width, Style::default());
@@ -120,22 +124,24 @@ impl Tui {
     }
 
     pub fn write(&mut self, text: &str) -> anyhow::Result<()> {
-        self.terminal.autoresize()?;
-        for part in text.split_inclusive('\n') {
-            if let Some(line) = part.strip_suffix('\n') {
-                self.buffer.push_str(line);
-                let lines = wrap_lines(&self.buffer, self.terminal.size()?.width, self.style);
-                for chunk in lines.chunks(usize::from(u16::MAX)) {
-                    self.terminal.insert_before(chunk.len() as u16, |buf| {
-                        Paragraph::new(chunk.to_vec()).render(buf.area, buf);
-                    })?;
+        io::stdout().sync_update(|_| {
+            self.terminal.autoresize()?;
+            for part in text.split_inclusive('\n') {
+                if let Some(line) = part.strip_suffix('\n') {
+                    self.buffer.push_str(line);
+                    let lines = wrap_lines(&self.buffer, self.terminal.size()?.width, self.style);
+                    for chunk in lines.chunks(usize::from(u16::MAX)) {
+                        self.terminal.insert_before(chunk.len() as u16, |buf| {
+                            Paragraph::new(chunk.to_vec()).render(buf.area, buf);
+                        })?;
+                    }
+                    self.buffer.clear();
+                } else {
+                    self.buffer.push_str(part);
                 }
-                self.buffer.clear();
-            } else {
-                self.buffer.push_str(part);
             }
-        }
-        self.draw()
+            self.draw_inner()
+        })?
     }
 
     pub fn flush(&mut self) -> anyhow::Result<()> {
