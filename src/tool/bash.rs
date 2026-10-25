@@ -35,7 +35,7 @@ impl Tool for BashTool {
                 "type": "function",
                 "function": {
                     "name": "bash",
-                    "description": "Run a shell command via `bash -c ...`. Returns combined stdout+stderr plus exit code. If the output is too long, it will save full output to temp file and leave a mark `|Output is too long, ...|` in the result, use `read` tool to read it if you need to.",
+                    "description": "Run a shell command via `bash -c ...`. Returns combined stdout+stderr plus exit code. If the output is too long, it will save full output to temp file and leave a mark `|Omitted N lines(s)|` in the result, use `read` tool to read it if you need to.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -120,9 +120,9 @@ fn format_cut(s: &str, cut: usize) -> String {
     let n = lines.len() - cut;
     let s = lines[lines.len() - cut..].join("\n");
     let line_str = if n == 1 {
-        "1 line was".to_string()
+        "1 line".to_string()
     } else {
-        format!("{n} lines were")
+        format!("{n} lines")
     };
-    format!("|Output is too long, {line_str} cut off|\n...\n{s}")
+    format!("|Omitted {line_str}|\n...\n{s}")
 }
