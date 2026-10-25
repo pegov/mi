@@ -106,7 +106,8 @@ impl Tui {
             Style::default().fg(Color::Rgb(255, 165, 0))
         };
         let input = wrap_lines(&text, size.width, style);
-        let height = (input.len().min(usize::from(u16::MAX - 2)) as u16 + 2).min(size.height);
+        let dynamic = wrap_lines(&self.buffer, size.width, self.style);
+        let height = (dynamic.len() + input.len() + 1).min(usize::from(size.height)) as u16;
         let area = self.terminal.get_frame().area();
         if area.height != height {
             self.terminal.clear()?;
@@ -120,12 +121,11 @@ impl Tui {
         }
         self.terminal.draw(|frame| {
             let [content, prompt, status] = Layout::vertical([
-                Constraint::Length(1),
                 Constraint::Min(1),
+                Constraint::Length(input.len().min(usize::from(u16::MAX)) as u16),
                 Constraint::Length(1),
             ])
             .areas(frame.area());
-            let dynamic = wrap_lines(&self.buffer, content.width, self.style);
             let offset = dynamic.len() - usize::from(content.height).min(dynamic.len());
             frame.render_widget(Paragraph::new(dynamic[offset..].to_vec()), content);
             let offset = input.len() - usize::from(prompt.height).min(input.len());
