@@ -76,6 +76,21 @@ impl Tui {
     }
 
     pub fn draw(&mut self) -> anyhow::Result<()> {
+        self.terminal.autoresize()?;
+        let size = self.terminal.size()?;
+        let input = wrap_lines(&format!("> {}", self.prompt), size.width, Style::default());
+        let height = (input.len().min(usize::from(u16::MAX - 2)) as u16 + 2).min(size.height);
+        let area = self.terminal.get_frame().area();
+        if area.height != height {
+            self.terminal.clear()?;
+            self.terminal.set_cursor_position((area.x, area.y))?;
+            self.terminal = DefaultTerminal::with_options(
+                ratatui::backend::CrosstermBackend::new(io::stdout()),
+                TerminalOptions {
+                    viewport: Viewport::Inline(height),
+                },
+            )?;
+        }
         self.terminal.draw(|frame| {
             let [content, prompt, status] = Layout::vertical([
                 Constraint::Length(1),
@@ -86,11 +101,6 @@ impl Tui {
             let dynamic = wrap_lines(&self.buffer, content.width, self.style);
             let offset = dynamic.len() - usize::from(content.height).min(dynamic.len());
             frame.render_widget(Paragraph::new(dynamic[offset..].to_vec()), content);
-            let input = wrap_lines(
-                &format!("> {}", self.prompt),
-                prompt.width,
-                Style::default(),
-            );
             let offset = input.len() - usize::from(prompt.height).min(input.len());
             if self.accepting_input && prompt.width > 0 && prompt.height > 0 {
                 let x = input
