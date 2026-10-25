@@ -15,10 +15,10 @@ use mi::{
     event::{HandleEventsAction, handle_events},
     image, jev, log,
     mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
-    printer::{self, Cursor, Printer},
+    printer::{self, Cursor},
     skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
-    tui::{TuiState, render_tui},
+    tui::Tui,
     xdg::{get_root_agents_md, load_system_prompt_preset, parse_config},
 };
 
@@ -63,14 +63,10 @@ fn is_skill_invocation(prompt: &str) -> Option<(&str, &str)> {
     Some((name, args.trim_start()))
 }
 
-fn apply_skill(
-    skills: &[Skill],
-    user_prompt: &mut String,
-    printer: &mut Printer,
-) -> anyhow::Result<()> {
+fn apply_skill(skills: &[Skill], user_prompt: &mut String, tui: &mut Tui) -> anyhow::Result<()> {
     if let Some((name, args)) = is_skill_invocation(&user_prompt.clone()) {
-        if let Some(res) = manually_invoke_skill(&skills, name, args) {
-            printer.skill(name)?;
+        if let Some(res) = manually_invoke_skill(skills, name, args) {
+            tui.tool("skill", name)?;
             *user_prompt = res;
         } else {
             user_prompt.push('\n');
@@ -208,29 +204,29 @@ fn run_chat(
         tool::BashTool::new(300, 300),
     ];
 
-    let mut stdout = std::io::stdout();
-
-    stdout.write_all(cursor.to_string(&session).as_bytes())?;
-    stdout.flush()?;
+    let mut tui = Tui::new(
+        cursor
+            .to_string(&session)
+            .trim_end_matches("\n> ")
+            .to_owned(),
+    )?;
 
     let mut prompt_history = Vec::new();
     let mut user_prompt = if let Some(ref prompt) = oneshot {
-        writeln!(stdout, "{prompt}")?;
+        tui.write(&format!("> {prompt}\n"))?;
         prompt.to_owned()
     } else {
         let mut prompt = String::new();
-        match handle_events(&mut stdout, &mut prompt, &mut prompt_history)? {
+        match handle_events(&mut tui, &mut prompt, &mut prompt_history)? {
             HandleEventsAction::None => {}
             HandleEventsAction::Exit => return Ok(()),
         }
         prompt
     };
 
-    let mut printer = Printer::default();
-
     let (model, provider, service_tier) = (model.model(), model.provider(), model.service_tier());
 
-    apply_skill(&skills, &mut user_prompt, &mut printer)?;
+    apply_skill(&skills, &mut user_prompt, &mut tui)?;
 
     let mut chat = chat::Chat::new(
         model,
@@ -251,7 +247,8 @@ fn run_chat(
 
     loop {
         loop {
-            printer.hide_cursor()?;
+            tui.accepting_input = false;
+            tui.draw()?;
             let mut raw_log_writer = log::create_sse_log()?;
 
             let mut a = Assembler::default();
@@ -260,9 +257,9 @@ fn run_chat(
 
             if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 if let Some(retry_after) = res.headers().get(reqwest::header::RETRY_AFTER) {
-                    writeln!(stdout, "Retry-After: {:?}", retry_after)?;
+                    tui.write(&format!("Retry-After: {retry_after:?}\n"))?;
                 } else {
-                    writeln!(stdout, "no header")?;
+                    tui.write("no header\n")?;
                 }
             }
             let res = res.error_for_status()?;
@@ -289,8 +286,8 @@ fn run_chat(
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
                         && let Some(message) = value["error"]["message"].as_str()
                     {
-                        printer.new_line()?;
-                        eprintln!("API error: {}", message);
+                        tui.finish()?;
+                        tui.write(&format!("API error: {message}\n"))?;
                         continue;
                     }
 
@@ -307,7 +304,12 @@ fn run_chat(
                                 }
                             }
 
+                            tui.status = cursor
+                                .to_string(&session)
+                                .trim_end_matches("\n> ")
+                                .to_owned();
                             let Some(choice) = v.choices.first() else {
+                                tui.draw()?;
                                 continue;
                             };
 
@@ -316,33 +318,32 @@ fn run_chat(
                             if let Some(ref reasoning) = choice.delta.reasoning
                                 && !reasoning.is_empty()
                             {
-                                printer.print(printer::Mode::Reasoning, reasoning)?;
+                                tui.print(printer::Mode::Reasoning, reasoning)?;
                             }
 
                             if let Some(ref content) = choice.delta.content
                                 && !content.is_empty()
                             {
-                                printer.print(printer::Mode::Content, content)?;
+                                tui.print(printer::Mode::Content, content)?;
                             }
 
-                            if let Some(ref finish_reason) = choice.finish_reason {
-                                match finish_reason {
-                                    FinishReason::Stop => {
-                                        printer.new_line()?;
-                                    }
-                                    FinishReason::ToolCalls => {
-                                        printer.new_line()?;
-                                    }
-                                }
+                            if let Some(FinishReason::Stop | FinishReason::ToolCalls) =
+                                choice.finish_reason
+                            {
+                                tui.finish()?;
+                            } else {
+                                tui.draw()?;
                             }
                         }
                         Err(e) => {
-                            eprintln!("Failed to parse json: {}", e);
+                            tui.finish()?;
+                            tui.write(&format!("Failed to parse json: {e}\n"))?;
                         }
                     }
                 }
             }
 
+            tui.finish()?;
             let am = a.assemble();
 
             let content = am.content.clone();
@@ -351,8 +352,7 @@ fn run_chat(
             let mut chat_tool_calls: Vec<chat::ToolCall> = Vec::with_capacity(am.tool_calls.len());
 
             for tool_call in am.tool_calls.iter() {
-                printer.reset()?;
-                printer.tool(&tool_call.function, &tool_call.arguments)?;
+                tui.tool(&tool_call.function, &tool_call.arguments)?;
 
                 chat_tool_calls.push(chat::ToolCall::from(tool_call));
 
@@ -360,8 +360,8 @@ fn run_chat(
                     let result = tool_impl
                         .call(&tool_call.arguments)
                         .unwrap_or_else(|e| format!("failed to call tool: {e}"));
-                    printer.print(printer::Mode::Content, &result)?;
-                    printer.new_line()?;
+                    tui.print(printer::Mode::Content, &result)?;
+                    tui.finish()?;
                     tools.push(chat::Tool::new(tool_call.id.clone(), result));
                 } else {
                     tools.push(chat::Tool::new(
@@ -391,31 +391,31 @@ fn run_chat(
             session.update(&credits);
         }
 
-        printer.show_cursor()?;
-        printer.reset()?;
+        tui.status = cursor
+            .to_string(&session)
+            .trim_end_matches("\n> ")
+            .to_owned();
+        tui.finish()?;
 
         if oneshot.is_some() {
             break;
         }
 
-        stdout.write_all(cursor.to_string(&session).as_bytes())?;
-        stdout.flush()?;
-
         let mut user_prompt = String::new();
-        match handle_events(&mut stdout, &mut user_prompt, &mut prompt_history)? {
+        match handle_events(&mut tui, &mut user_prompt, &mut prompt_history)? {
             HandleEventsAction::None => {}
             HandleEventsAction::Exit => return Ok(()),
         };
         if user_prompt.is_empty() {
             break;
         } else {
-            apply_skill(&skills, &mut user_prompt, &mut printer)?;
+            apply_skill(&skills, &mut user_prompt, &mut tui)?;
             let sm = chat::SimpleMessage::new(&user_prompt);
             chat.messages.push(chat::Message::User(sm));
         }
     }
 
-    println!("Chat is over!");
+    tui.write("Chat is over!\n")?;
     Ok(())
 }
 
@@ -541,20 +541,6 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 &profile.spp,
                 opts,
             )?;
-        }
-        cmd::Command::LocalTui {
-            resume: _,
-            oneshot: _,
-            profile,
-            system_prompt_preset,
-            disable_default_system_prompt: _,
-        } => {
-            let _ = config.load_profile(profile.as_deref(), system_prompt_preset)?;
-            let base_url = config.local.base_url;
-            let _ = format!("{base_url}/chat/completions");
-
-            let mut state = TuiState::default();
-            render_tui(&mut state)?;
         }
         cmd::Command::OpenRouter {
             model,

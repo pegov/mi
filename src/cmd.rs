@@ -26,18 +26,6 @@ pub enum Command {
         #[arg(long, visible_alias = "iram")]
         ignore_root_agents_md: bool,
     },
-    LocalTui {
-        #[arg(long, value_name = "PROMPT")]
-        oneshot: Option<String>,
-        #[arg(long)]
-        resume: bool,
-        #[arg(short, long)]
-        profile: Option<String>,
-        #[arg(long, visible_alias = "spp")]
-        system_prompt_preset: Vec<String>,
-        #[arg(long, visible_alias = "ddsp")]
-        disable_default_system_prompt: bool,
-    },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
         #[arg(short, long, value_enum)]

@@ -1,14 +1,12 @@
-use std::io::{self, Write};
+use std::io;
 
 use crossterm::{
-    ExecutableCommand, QueueableCommand,
-    cursor::{MoveToColumn, MoveUp},
-    event::{self, Event, KeyCode, KeyModifiers},
-    queue,
-    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
+    ExecutableCommand,
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags},
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
 
-use crate::{copy::copy_user_prompt_to_clipboard, xdg::open_editor};
+use crate::{copy::copy_user_prompt_to_clipboard, tui::Tui, xdg::open_editor};
 
 pub enum HandleEventsAction {
     None,
@@ -16,171 +14,91 @@ pub enum HandleEventsAction {
 }
 
 pub fn handle_events(
-    stdout: &mut io::Stdout,
+    tui: &mut Tui,
     user_prompt: &mut String,
     history: &mut Vec<String>,
 ) -> anyhow::Result<HandleEventsAction> {
-    enable_raw_mode()?;
-    stdout.execute(event::PushKeyboardEnhancementFlags(
-        event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-    ))?;
-    stdout.execute(event::EnableBracketedPaste)?;
-
+    tui.accepting_input = true;
+    tui.prompt = user_prompt.clone();
+    tui.draw()?;
     let mut history_index = history.len();
     let mut draft = String::new();
 
     loop {
-        let event = event::read()?;
-        if let Event::Key(key_event) = event {
-            if key_event.code == KeyCode::Char('c')
-                && key_event.modifiers.contains(KeyModifiers::CONTROL)
-            {
-                return Ok(HandleEventsAction::Exit);
-            }
-
-            if key_event.code == KeyCode::Char('y')
-                && key_event.modifiers.contains(KeyModifiers::CONTROL)
-            {
-                copy_user_prompt_to_clipboard(user_prompt)?;
-                continue;
-            }
-
-            if key_event.code == KeyCode::Char('e')
-                && key_event.modifiers.contains(KeyModifiers::CONTROL)
-            {
-                let mut new_lines_count = 0;
-                for char in user_prompt.chars() {
-                    if char == '\n' {
-                        new_lines_count += 1;
+        match event::read()? {
+            Event::Key(key) if key.kind != KeyEventKind::Release => {
+                match (key.code, key.modifiers) {
+                    (KeyCode::Char('c'), modifiers)
+                        if modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        return Ok(HandleEventsAction::Exit);
                     }
-                }
-
-                if new_lines_count > 0 {
-                    queue!(stdout, MoveUp(new_lines_count))?;
-                }
-                queue!(stdout, MoveToColumn(2), Clear(ClearType::FromCursorDown))?;
-                stdout.flush()?;
-
-                *user_prompt = open_editor(user_prompt)?;
-                for char in user_prompt.trim().chars() {
-                    if char == '\n' {
-                        write!(stdout, "\r\n")?;
-                    } else {
-                        write!(stdout, "{char}")?;
+                    (KeyCode::Char('y'), modifiers)
+                        if modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        copy_user_prompt_to_clipboard(user_prompt)?;
                     }
-                }
-                stdout.flush()?;
-
-                continue;
-            }
-
-            if key_event.code == KeyCode::Enter && key_event.modifiers.contains(KeyModifiers::SHIFT)
-            {
-                user_prompt.push('\n');
-                write!(stdout, "\r\n")?;
-                stdout.flush()?;
-                continue;
-            }
-
-            if matches!(key_event.code, KeyCode::Up | KeyCode::Down) {
-                match key_event.code {
-                    KeyCode::Up if history_index > 0 => {
-                        if history_index == history.len() {
-                            draft = user_prompt.clone();
-                        }
-                        history_index -= 1;
+                    (KeyCode::Char('e'), modifiers)
+                        if modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        tui.terminal.show_cursor()?;
+                        io::stdout().execute(event::PopKeyboardEnhancementFlags)?;
+                        io::stdout().execute(event::DisableBracketedPaste)?;
+                        disable_raw_mode()?;
+                        let result = open_editor(user_prompt);
+                        enable_raw_mode()?;
+                        io::stdout().execute(event::PushKeyboardEnhancementFlags(
+                            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+                        ))?;
+                        io::stdout().execute(event::EnableBracketedPaste)?;
+                        tui.terminal.clear()?;
+                        *user_prompt = result?;
                     }
-                    KeyCode::Down if history_index < history.len() => {
-                        history_index += 1;
-                    }
-                    _ => continue,
-                }
-
-                let new_lines_count = user_prompt.chars().filter(|&c| c == '\n').count() as u16;
-                if new_lines_count > 0 {
-                    queue!(stdout, MoveUp(new_lines_count))?;
-                }
-                queue!(stdout, MoveToColumn(2), Clear(ClearType::FromCursorDown))?;
-                *user_prompt = history.get(history_index).unwrap_or(&draft).clone();
-                write!(stdout, "{}", user_prompt.replace('\n', "\r\n"))?;
-                stdout.flush()?;
-                continue;
-            }
-
-            if key_event.code == KeyCode::Enter {
-                if !user_prompt.is_empty() {
-                    history.push(user_prompt.clone());
-                }
-                break;
-            }
-
-            if key_event.code == KeyCode::Backspace {
-                if !user_prompt.is_empty() {
-                    if user_prompt.ends_with('\n') {
-                        user_prompt.pop();
-                        let total_lines = user_prompt.split('\n').count();
-                        let last_line_len = match user_prompt.rsplit_once('\n') {
-                            Some((_, last_line)) => last_line.len(),
-                            None => user_prompt.len(),
-                        } as u16;
-                        stdout.queue(MoveUp(1))?;
-                        if total_lines <= 1 {
-                            stdout.queue(MoveToColumn(last_line_len + 2))?;
-                        } else {
-                            stdout.queue(MoveToColumn(last_line_len))?;
-                        }
-                    } else {
-                        user_prompt.pop();
-                        write!(stdout, "\x08 \x08")?;
-                    }
-                    stdout.flush()?;
-                }
-                continue;
-            }
-
-            if key_event.modifiers.is_empty() {
-                if let KeyCode::Char(c) = key_event.code {
-                    user_prompt.push(c);
-                    write!(stdout, "{}", c)?;
-                    stdout.flush()?;
-                }
-                continue;
-            }
-            if key_event.modifiers.contains(KeyModifiers::SHIFT) {
-                if let KeyCode::Char(c) = key_event.code {
-                    let up = c.to_uppercase().to_string();
-                    user_prompt.push_str(&up);
-                    write!(stdout, "{}", up)?;
-                    stdout.flush()?;
-                }
-                continue;
-            }
-        }
-
-        if let Event::Paste(s) = event {
-            for c in s.chars() {
-                match c {
-                    '\n' => {
+                    (KeyCode::Enter, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
                         user_prompt.push('\n');
-                        write!(stdout, "\r\n")?;
-                        stdout.flush()?;
                     }
-                    _ => {
+                    (KeyCode::Up | KeyCode::Down, _) => {
+                        match key.code {
+                            KeyCode::Up if history_index > 0 => {
+                                if history_index == history.len() {
+                                    draft = user_prompt.clone();
+                                }
+                                history_index -= 1;
+                            }
+                            KeyCode::Down if history_index < history.len() => {
+                                history_index += 1;
+                            }
+                            _ => continue,
+                        }
+                        *user_prompt = history.get(history_index).unwrap_or(&draft).clone();
+                    }
+                    (KeyCode::Enter, _) => {
+                        if !user_prompt.is_empty() {
+                            history.push(user_prompt.clone());
+                        }
+                        tui.accepting_input = false;
+                        tui.prompt.clear();
+                        tui.write(&format!("> {user_prompt}\n"))?;
+                        return Ok(HandleEventsAction::None);
+                    }
+                    (KeyCode::Backspace, _) => {
+                        user_prompt.pop();
+                    }
+                    (KeyCode::Char(c), modifiers)
+                        if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT =>
+                    {
                         user_prompt.push(c);
-                        write!(stdout, "{}", c)?;
-                        stdout.flush()?;
                     }
+                    _ => {}
                 }
             }
-            continue;
+            Event::Paste(text) => {
+                user_prompt.push_str(&text.replace("\r\n", "\n").replace('\r', "\n"))
+            }
+            Event::Resize(_, _) => {}
+            _ => continue,
         }
+        tui.prompt = user_prompt.clone();
+        tui.draw()?;
     }
-
-    disable_raw_mode()?;
-    stdout.execute(event::PopKeyboardEnhancementFlags)?;
-    stdout.execute(event::DisableBracketedPaste)?;
-    stdout.write_all("\n".as_bytes())?;
-    stdout.flush()?;
-
-    Ok(HandleEventsAction::None)
 }
