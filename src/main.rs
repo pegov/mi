@@ -76,6 +76,9 @@ fn apply_skill(skills: &[Skill], user_prompt: &mut String, tui: &mut Tui) -> any
     Ok(())
 }
 
+const NEW_SESSION_BANNER: &str =
+    "\n+---------------------+\n| NEW SESSION STARTED |\n+---------------------+\n\n";
+
 const SYSTEM_PROMPT: &str = "You are an expert coding assistant operating inside mi, \
                             a simple and minimal coding agent harness.";
 
@@ -211,22 +214,10 @@ fn run_chat(
             .to_owned(),
     )?;
 
+    tui.write(NEW_SESSION_BANNER)?;
+
     let mut prompt_history = Vec::new();
-    let mut user_prompt = if let Some(ref prompt) = oneshot {
-        tui.write(&format!("> {prompt}\n"))?;
-        prompt.to_owned()
-    } else {
-        let mut prompt = String::new();
-        match handle_events(&mut tui, &mut prompt, &mut prompt_history)? {
-            HandleEventsAction::None => {}
-            HandleEventsAction::Exit => return Ok(()),
-        }
-        prompt
-    };
-
     let (model, provider, service_tier) = (model.model(), model.provider(), model.service_tier());
-
-    apply_skill(&skills, &mut user_prompt, &mut tui)?;
 
     let mut chat = chat::Chat::new(
         model,
@@ -235,10 +226,9 @@ fn run_chat(
         reasoning_effort,
         tool_registry.defs.clone(),
         &system_prompt,
-        &user_prompt,
     );
     if resume {
-        chat.resume(&user_prompt)?;
+        chat.resume()?;
     }
 
     let client = reqwest::blocking::ClientBuilder::default()
@@ -246,6 +236,45 @@ fn run_chat(
         .build()?;
 
     loop {
+        let mut user_prompt = if let Some(ref prompt) = oneshot {
+            tui.write(&format!("> {prompt}\n"))?;
+            prompt.to_owned()
+        } else {
+            let mut prompt = String::new();
+            match handle_events(&mut tui, &mut prompt, &mut prompt_history)? {
+                HandleEventsAction::None => {}
+                HandleEventsAction::Exit => return Ok(()),
+            }
+            prompt
+        };
+
+        if user_prompt.trim() == "/new" {
+            chat.messages = vec![chat::Message::System(chat::SimpleMessage::new(
+                &system_prompt,
+            ))];
+            chat.save_messages()?;
+            session = credits::Session {
+                start_balance: session.curr_balance,
+                curr_balance: session.curr_balance,
+                ..Default::default()
+            };
+            tui.status = cursor
+                .to_string(&session)
+                .trim_end_matches("\n> ")
+                .to_owned();
+            tui.write(NEW_SESSION_BANNER)?;
+            if oneshot.is_some() {
+                break;
+            }
+            continue;
+        }
+        if user_prompt.is_empty() {
+            break;
+        }
+        apply_skill(&skills, &mut user_prompt, &mut tui)?;
+        chat.messages
+            .push(chat::Message::User(chat::SimpleMessage::new(&user_prompt)));
+
         loop {
             tui.accepting_input = false;
             tui.draw()?;
@@ -398,19 +427,6 @@ fn run_chat(
 
         if oneshot.is_some() {
             break;
-        }
-
-        let mut user_prompt = String::new();
-        match handle_events(&mut tui, &mut user_prompt, &mut prompt_history)? {
-            HandleEventsAction::None => {}
-            HandleEventsAction::Exit => return Ok(()),
-        };
-        if user_prompt.is_empty() {
-            break;
-        } else {
-            apply_skill(&skills, &mut user_prompt, &mut tui)?;
-            let sm = chat::SimpleMessage::new(&user_prompt);
-            chat.messages.push(chat::Message::User(sm));
         }
     }
 

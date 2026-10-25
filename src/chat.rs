@@ -28,10 +28,8 @@ impl Chat {
         reasoning_effort: OpenRouterReasoning,
         tools: Vec<serde_json::Value>,
         system: &str,
-        user: &str,
     ) -> Self {
         let system_message = SimpleMessage::new(system);
-        let user_message = SimpleMessage::new(user);
         let reasoning = Reasoning::new(reasoning_effort);
 
         Self {
@@ -42,7 +40,7 @@ impl Chat {
             tools,
             tool_choice: TOOL_CHOICE_AUTO,
             stream: true,
-            messages: vec![Message::System(system_message), Message::User(user_message)],
+            messages: vec![Message::System(system_message)],
         }
     }
 
@@ -53,10 +51,8 @@ impl Chat {
         Ok(())
     }
 
-    pub fn resume(&mut self, user_prompt: &str) -> anyhow::Result<()> {
+    pub fn resume(&mut self) -> anyhow::Result<()> {
         self.messages = serde_json::from_slice(&fs::read(get_session_path()?)?)?;
-        self.messages
-            .push(Message::User(SimpleMessage::new(user_prompt)));
         Ok(())
     }
 }
