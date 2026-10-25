@@ -343,7 +343,17 @@ fn run_chat(
                 }
             }
 
+            if let Some(credits_gateway) = credits_gateway {
+                let credits = credits::get_credits(credits_gateway)?;
+                session.update(&credits);
+            }
+
+            tui.status = cursor
+                .to_string(&session)
+                .trim_end_matches("\n> ")
+                .to_owned();
             tui.finish()?;
+
             let am = a.assemble();
 
             let content = am.content.clone();
@@ -385,17 +395,6 @@ fn run_chat(
             }
             chat.save_messages()?;
         }
-
-        if let Some(credits_gateway) = credits_gateway {
-            let credits = credits::get_credits(credits_gateway)?;
-            session.update(&credits);
-        }
-
-        tui.status = cursor
-            .to_string(&session)
-            .trim_end_matches("\n> ")
-            .to_owned();
-        tui.finish()?;
 
         if oneshot.is_some() {
             break;
