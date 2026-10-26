@@ -106,12 +106,18 @@ pub enum OpenRouterModel {
     #[serde(rename = "luna/flex")]
     #[value(name = "luna/flex")]
     OpenAILunaFlex,
+    #[serde(rename = "terra/flex")]
+    #[value(name = "terra/flex")]
+    OpenAITerraFlex,
     #[serde(rename = "sol/flex")]
     #[value(name = "sol/flex")]
     OpenAISolFlex,
     #[serde(rename = "luna")]
     #[value(name = "luna")]
     OpenAILuna,
+    #[serde(rename = "terra")]
+    #[value(name = "terra")]
+    OpenAITerra,
     #[serde(rename = "sol")]
     #[value(name = "sol")]
     OpenAISol,
@@ -127,8 +133,10 @@ impl OpenRouterModel {
             Self::DeepSeek => "deepseek",
             Self::GlmFlash => "glm-flash",
             Self::OpenAILunaFlex => "luna/flex",
+            Self::OpenAITerraFlex => "terra/flex",
             Self::OpenAISolFlex => "sol/flex",
             Self::OpenAILuna => "luna",
+            Self::OpenAITerra => "terra",
             Self::OpenAISol => "sol",
             Self::Kimi => "kimi",
         }
@@ -140,6 +148,7 @@ impl OpenRouterModel {
             Self::DeepSeek => "deepseek/deepseek-v4.1-flash-1017",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
             Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
+            Self::OpenAITerraFlex | Self::OpenAITerra => "openai/gpt-6.1-terra",
             Self::OpenAISolFlex | Self::OpenAISol => "openai/gpt-6.1-sol",
             Self::Kimi => "moonshotai/kimi-k3.1-pro",
         }
@@ -165,13 +174,15 @@ impl OpenRouterModel {
                 "allow_fallbacks": false
             }
             ),
-            Self::OpenAILunaFlex | Self::OpenAISolFlex => serde_json::json!(
-            {
-                "order": ["openai/flex"],
-                "allow_fallbacks": false
+            Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => {
+                serde_json::json!(
+                {
+                    "order": ["openai/flex"],
+                    "allow_fallbacks": false
+                }
+                )
             }
-            ),
-            Self::OpenAILuna | Self::OpenAISol => serde_json::json!(
+            Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => serde_json::json!(
             {
                 "order": ["openai"],
                 "allow_fallbacks": false
@@ -188,7 +199,7 @@ impl OpenRouterModel {
 
     pub fn service_tier(&self) -> Option<&'static str> {
         match *self {
-            Self::OpenAILunaFlex | Self::OpenAISolFlex => Some("flex"),
+            Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => Some("flex"),
             _ => None,
         }
     }
