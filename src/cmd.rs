@@ -200,7 +200,13 @@ impl OpenRouterModel {
     pub fn service_tier(&self) -> Option<&'static str> {
         match *self {
             Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => Some("flex"),
-            _ => None,
+            Self::None
+            | Self::DeepSeek
+            | Self::GlmFlash
+            | Self::OpenAILuna
+            | Self::OpenAITerra
+            | Self::OpenAISol
+            | Self::Kimi => None,
         }
     }
 }
