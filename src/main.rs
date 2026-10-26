@@ -356,7 +356,7 @@ fn compact(
             && let Some(window) = max_context
             && session.estimate_context(after)
                 > if settings.enabled {
-                    window.checked_sub(settings.reserve_tokens).unwrap_or(0)
+                    compaction::threshold(window, settings.compact_at_percent)
                 } else {
                     window
                 }
@@ -418,10 +418,7 @@ fn auto_compact(
     let Some(max_context) = max_context else {
         return Ok(true);
     };
-    let Some(threshold) = max_context.checked_sub(settings.reserve_tokens) else {
-        tui.write("Compaction reserve is larger than the context window\n")?;
-        return Ok(false);
-    };
+    let threshold = compaction::threshold(max_context, settings.compact_at_percent);
     let estimated = session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
     if estimated <= threshold {
         return Ok(true);
@@ -1071,6 +1068,12 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             .compaction
             .get_or_insert_with(CompactionConfig::default)
             .cache_aware = Some(cache_aware);
+    }
+    if let Some(percent) = cli.compaction_at_percent {
+        config
+            .compaction
+            .get_or_insert_with(CompactionConfig::default)
+            .compact_at_percent = Some(percent);
     }
 
     match cli.command {

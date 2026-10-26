@@ -6,7 +6,7 @@ use crate::{
     xdg::CompactionConfig,
 };
 
-pub const DEFAULT_RESERVE_TOKENS: u64 = 16_384;
+pub const DEFAULT_COMPACT_AT_PERCENT: u64 = 50;
 pub const DEFAULT_KEEP_RECENT_TOKENS: u64 = 20_000;
 pub const DEFAULT_OUTPUT_TOKENS: u64 = 8_192;
 pub const TOOL_RESULT_LIMIT: usize = 2_000;
@@ -15,39 +15,46 @@ const SUMMARY_SAFETY_TOKENS: u64 = 1_024;
 pub struct Settings {
     pub enabled: bool,
     pub cache_aware: bool,
-    pub reserve_tokens: u64,
+    pub compact_at_percent: u64,
     pub keep_recent_tokens: u64,
 }
 
 impl Settings {
     pub fn resolve(config: Option<&CompactionConfig>, model: &str) -> anyhow::Result<Self> {
         let mut enabled = true;
-        let mut reserve_tokens = DEFAULT_RESERVE_TOKENS;
+        let mut compact_at_percent = DEFAULT_COMPACT_AT_PERCENT;
         let mut keep_recent_tokens = DEFAULT_KEEP_RECENT_TOKENS;
         if let Some(config) = config {
             enabled = config.enabled.unwrap_or(true);
-            if let Some(value) = config.reserve_tokens {
-                reserve_tokens = value;
+            if let Some(value) = config.compact_at_percent {
+                compact_at_percent = value;
             }
             if let Some(value) = config.keep_recent_tokens {
                 keep_recent_tokens = value;
             }
             if let Some(override_) = config.model_overrides.as_ref().and_then(|o| o.get(model)) {
-                if let Some(value) = override_.reserve_tokens {
-                    reserve_tokens = value;
+                if let Some(value) = override_.compact_at_percent {
+                    compact_at_percent = value;
                 }
                 if let Some(value) = override_.keep_recent_tokens {
                     keep_recent_tokens = value;
                 }
             }
         }
+        if compact_at_percent > 100 {
+            anyhow::bail!("compaction percent must be between 0 and 100");
+        }
         Ok(Self {
             enabled,
             cache_aware: config.and_then(|config| config.cache_aware).unwrap_or(true),
-            reserve_tokens,
+            compact_at_percent,
             keep_recent_tokens,
         })
     }
+}
+
+pub fn threshold(max_context: u64, compact_at_percent: u64) -> u64 {
+    max_context * compact_at_percent / 100
 }
 
 pub fn estimate_text_tokens(text: &str) -> u64 {

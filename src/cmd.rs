@@ -15,6 +15,13 @@ pub struct Cli {
         help = "Summarize using the conversation prefix for prompt caching (default: true; config: compaction.cache_aware)"
     )]
     pub cache_aware_compaction: Option<bool>,
+    #[arg(
+        long,
+        global = true,
+        value_name = "PERCENT",
+        help = "Compact when this percentage of the context window is used (default: 50; config: compaction.compact_at_percent)"
+    )]
+    pub compaction_at_percent: Option<u64>,
     #[command(subcommand)]
     pub command: Command,
 }

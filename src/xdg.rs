@@ -21,8 +21,8 @@ pub struct CompactionConfig {
     pub enabled: Option<bool>,
     #[serde(alias = "cacheAware")]
     pub cache_aware: Option<bool>,
-    #[serde(alias = "reserveTokens")]
-    pub reserve_tokens: Option<u64>,
+    #[serde(alias = "compactAtPercent")]
+    pub compact_at_percent: Option<u64>,
     #[serde(alias = "keepRecentTokens")]
     pub keep_recent_tokens: Option<u64>,
     #[serde(default, alias = "modelOverrides")]
@@ -31,8 +31,8 @@ pub struct CompactionConfig {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct ModelOverride {
-    #[serde(alias = "reserveTokens")]
-    pub reserve_tokens: Option<u64>,
+    #[serde(alias = "compactAtPercent")]
+    pub compact_at_percent: Option<u64>,
     #[serde(alias = "keepRecentTokens")]
     pub keep_recent_tokens: Option<u64>,
 }
