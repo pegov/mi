@@ -19,6 +19,8 @@ pub struct Session {
     pub output_tokens: u64,
     pub cache_tokens: u64,
     pub active_context_tokens: u64,
+    pub context_ratio: f64,
+    pub pending_summaries: Vec<std::sync::mpsc::Receiver<crate::compaction::SummaryOutcome>>,
 }
 
 impl Session {
@@ -30,6 +32,40 @@ impl Session {
             output_tokens: 0,
             cache_tokens: 0,
             active_context_tokens: 0,
+            context_ratio: 1.0,
+            pending_summaries: vec![],
+        }
+    }
+
+    pub fn collect_summary_usage(&mut self) {
+        for index in (0..self.pending_summaries.len()).rev() {
+            match self.pending_summaries[index].try_recv() {
+                Ok(outcome) => {
+                    if let Some(usage) = outcome.usage {
+                        self.save_usage(&usage);
+                    }
+                    self.pending_summaries.swap_remove(index);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.pending_summaries.swap_remove(index);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+    }
+
+    pub fn estimate_context(&self, tokens: u64) -> u64 {
+        (tokens as f64 * self.context_ratio.max(1.0)).ceil() as u64
+    }
+
+    pub fn save_usage(&mut self, usage: &crate::completions::Usage) {
+        self.save_tokens(
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.prompt_tokens_details.cached_tokens,
+        );
+        if let Some(cost) = usage.cost {
+            self.save_cost(cost);
         }
     }
 

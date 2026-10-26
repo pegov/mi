@@ -182,7 +182,9 @@ fn update_status(
     chat: &chat::Chat,
     tool_tokens: u64,
 ) {
-    session.active_context_tokens = chat.session.estimate_active_tokens() + tool_tokens;
+    session.collect_summary_usage();
+    session.active_context_tokens =
+        session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
     tui.status = cursor
         .to_string(session)
         .trim_end_matches("\n> ")
@@ -208,127 +210,149 @@ fn compact(
     instructions: &str,
     tool_tokens: u64,
     session: &mut credits::Session,
+    mode: compaction::Mode,
+    credits_gateway: Option<&str>,
 ) -> anyhow::Result<CompactionOutcome> {
-    let Some(preparation) = compaction::prepare(&chat.session, settings.keep_recent_tokens) else {
-        return Ok(CompactionOutcome::Nothing);
-    };
-
-    tui.accepting_input = false;
-    tui.activity = Some("Compacting");
-    tui.draw()?;
-
-    let mut previous_summary = preparation.previous_summary.clone();
-    let mut usage = None;
-    for span in &preparation.spans {
-        let transcript = compaction::serialize_conversation(&chat.session, span);
-        let prompt = compaction::summary_prompt(
-            previous_summary.as_deref(),
-            Some(instructions),
-            &transcript,
-        );
-        let request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
-        let max_tokens = match compaction::summary_budget(max_context, output_limit, request_tokens)
-        {
-            Ok(value) => value,
-            Err(error) => return Ok(CompactionOutcome::Failed(error.to_string())),
+    let result = (|| {
+        let Some(preparation) =
+            compaction::prepare(&chat.session, settings.keep_recent_tokens, mode)
+        else {
+            return Ok(CompactionOutcome::Nothing);
         };
-        let request = compaction::summary_request(
-            chat.model(),
-            chat.providers(),
-            chat.service_tier(),
-            &prompt,
-            max_tokens,
-        );
 
-        let (tx, rx) = mpsc::channel();
-        let client = client.clone();
-        let url = url.to_owned();
-        thread::spawn(move || {
-            let _ = tx.send(compaction::request_summary(&client, &url, &request));
-        });
-        let result = match tui.recv(&rx) {
-            Ok(Some(result)) => result,
-            Ok(None) => return Ok(CompactionOutcome::Failed("worker disconnected".into())),
-            Err(error)
-                if error
-                    .downcast_ref::<std::io::Error>()
-                    .is_some_and(|error| error.kind() == std::io::ErrorKind::Interrupted) =>
-            {
-                return Ok(CompactionOutcome::Cancelled);
-            }
-            Err(error) => return Err(error),
-        };
-        let outcome = match result {
-            Ok(outcome) => outcome,
-            Err(compaction::SummaryFailure::Overflow) => {
-                return Ok(CompactionOutcome::Failed(
-                    "context overflow while generating the summary".into(),
-                ));
-            }
-            Err(compaction::SummaryFailure::Empty) => {
-                return Ok(CompactionOutcome::Failed(
-                    "the model returned an empty summary".into(),
-                ));
-            }
-            Err(compaction::SummaryFailure::Error(message)) => {
-                return Ok(CompactionOutcome::Failed(message));
-            }
-        };
-        if let Some(ref reported) = outcome.usage {
-            session.save_tokens(
-                reported.prompt_tokens,
-                reported.completion_tokens,
-                reported.prompt_tokens_details.cached_tokens,
+        tui.accepting_input = false;
+        tui.activity = Some("Compacting");
+        tui.draw()?;
+
+        let mut previous_summary = preparation.previous_summary.clone();
+        let mut usage = None;
+        for span in &preparation.spans {
+            let transcript = compaction::serialize_conversation(&chat.session, span);
+            let prompt = compaction::summary_prompt(
+                previous_summary.as_deref(),
+                Some(instructions),
+                &transcript,
             );
-            if let Some(cost) = reported.cost {
-                session.save_cost(cost);
+            let request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
+            let max_tokens =
+                match compaction::summary_budget(max_context, output_limit, request_tokens) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(CompactionOutcome::Failed(error.to_string())),
+                };
+            let request = compaction::summary_request(
+                chat.model(),
+                chat.providers(),
+                chat.service_tier(),
+                &prompt,
+                max_tokens,
+            );
+
+            let (tx, rx) = mpsc::channel();
+            let client = client.clone();
+            let url = url.to_owned();
+            thread::spawn(move || {
+                let _ = tx.send(compaction::request_summary(&client, &url, &request));
+            });
+            let result = match tui.recv(&rx) {
+                Ok(Some(result)) => result,
+                Ok(None) => return Ok(CompactionOutcome::Failed("worker disconnected".into())),
+                Err(error)
+                    if error
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|error| error.kind() == std::io::ErrorKind::Interrupted) =>
+                {
+                    session.pending_summaries.push(rx);
+                    return Ok(CompactionOutcome::Cancelled);
+                }
+                Err(error) => return Err(error),
+            };
+            if let Some(ref reported) = result.usage {
+                session.save_usage(reported);
+                mi::completions::Usage::accumulate(&mut usage, reported);
             }
-            usage = outcome.usage.clone();
+            previous_summary = Some(match result.text {
+                Ok(text) => text,
+                Err(compaction::SummaryFailure::Overflow) => {
+                    return Ok(CompactionOutcome::Failed(
+                        "context overflow while generating the summary".into(),
+                    ));
+                }
+                Err(compaction::SummaryFailure::Empty) => {
+                    return Ok(CompactionOutcome::Failed(
+                        "the model returned an empty summary".into(),
+                    ));
+                }
+                Err(compaction::SummaryFailure::Error(message)) => {
+                    return Ok(CompactionOutcome::Failed(message));
+                }
+            });
         }
-        previous_summary = Some(outcome.text);
-    }
 
-    let Some(summary) = previous_summary else {
-        return Ok(CompactionOutcome::Nothing);
-    };
-    let summary = compaction::append_file_lists(
-        summary,
-        &preparation.read_files,
-        &preparation.modified_files,
-    );
+        let Some(summary) = previous_summary else {
+            return Ok(CompactionOutcome::Nothing);
+        };
+        let summary = compaction::append_file_lists(
+            summary,
+            &preparation.read_files,
+            &preparation.modified_files,
+        );
 
-    let mut candidate = chat.session.clone();
-    candidate.compactions.push(chat::Compaction {
-        summary,
-        first_kept_message_index: preparation.first_kept_message_index,
-        message_count_at_compaction: chat.session.messages.len(),
-        tokens_before: preparation.tokens_before,
-        usage,
-        read_files: preparation.read_files,
-        modified_files: preparation.modified_files,
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |value| value.as_secs()),
-    });
-    if let Err(error) = candidate.validate() {
-        return Ok(CompactionOutcome::Failed(error.to_string()));
-    }
-    let after = candidate.estimate_active_tokens() + tool_tokens;
-    let before = preparation.tokens_before + tool_tokens;
-    if after >= before {
-        return Ok(CompactionOutcome::Failed(
-            "compaction did not reduce the context".into(),
-        ));
-    }
+        let mut candidate = chat.session.clone();
+        candidate.compactions.push(chat::Compaction {
+            summary,
+            first_kept_message_index: preparation.first_kept_message_index,
+            message_count_at_compaction: chat.session.messages.len(),
+            tokens_before: preparation.tokens_before,
+            usage,
+            read_files: preparation.read_files,
+            modified_files: preparation.modified_files,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |value| value.as_secs()),
+        });
+        if let Err(error) = candidate.validate() {
+            return Ok(CompactionOutcome::Failed(error.to_string()));
+        }
+        let after = candidate.estimate_active_tokens() + tool_tokens;
+        let before = preparation.tokens_before + tool_tokens;
+        if after >= before {
+            return Ok(CompactionOutcome::Failed(
+                "compaction did not reduce the context".into(),
+            ));
+        }
 
-    let previous = std::mem::replace(&mut chat.session, candidate);
-    if let Err(error) = chat.save_session() {
-        chat.session = previous;
-        return Ok(CompactionOutcome::Failed(format!(
-            "could not persist the compaction: {error}"
-        )));
+        if mode == compaction::Mode::Recovery
+            && let Some(window) = max_context
+            && session.estimate_context(after)
+                > if settings.enabled {
+                    window.checked_sub(settings.reserve_tokens).unwrap_or(0)
+                } else {
+                    window
+                }
+        {
+            return Ok(CompactionOutcome::Failed(
+                "retained input, system prompt, tools, or summary still exceeds the context window"
+                    .into(),
+            ));
+        }
+
+        let previous = std::mem::replace(&mut chat.session, candidate);
+        if let Err(error) = chat.save_session() {
+            chat.session = previous;
+            return Ok(CompactionOutcome::Failed(format!(
+                "could not persist the compaction: {error}"
+            )));
+        }
+        Ok(CompactionOutcome::Compacted { before, after })
+    })();
+    session.collect_summary_usage();
+    if session.pending_summaries.is_empty()
+        && let Some(gateway) = credits_gateway
+        && let Ok(Ok(credits)) = tui.run(|| credits::get_credits(gateway))
+    {
+        session.update(&credits);
     }
-    Ok(CompactionOutcome::Compacted { before, after })
+    result
 }
 
 fn report_compaction(tui: &mut Tui, outcome: &CompactionOutcome) -> anyhow::Result<()> {
@@ -355,24 +379,25 @@ fn auto_compact(
     output_limit: Option<u64>,
     tool_tokens: u64,
     session: &mut credits::Session,
+    credits_gateway: Option<&str>,
 ) -> anyhow::Result<bool> {
     if !settings.enabled {
-        return Ok(false);
+        return Ok(true);
     }
     let Some(max_context) = max_context else {
-        return Ok(false);
+        return Ok(true);
     };
     let Some(threshold) = max_context.checked_sub(settings.reserve_tokens) else {
         tui.write("Compaction reserve is larger than the context window\n")?;
-        return Ok(true);
-    };
-    let estimated = chat.session.estimate_active_tokens() + tool_tokens;
-    if estimated <= threshold {
         return Ok(false);
+    };
+    let estimated = session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
+    if estimated <= threshold {
+        return Ok(true);
     }
     if settings.keep_recent_tokens >= max_context {
         tui.write("Compaction keepRecentTokens is larger than the context window\n")?;
-        return Ok(true);
+        return Ok(false);
     }
     let outcome = compact(
         chat,
@@ -385,9 +410,22 @@ fn auto_compact(
         "",
         tool_tokens,
         session,
+        compaction::Mode::Normal,
+        credits_gateway,
     )?;
     report_compaction(tui, &outcome)?;
-    Ok(!matches!(outcome, CompactionOutcome::Compacted { .. }))
+    if !matches!(outcome, CompactionOutcome::Compacted { .. }) {
+        if matches!(outcome, CompactionOutcome::Nothing) {
+            tui.write("Generation stopped: the retained input, system prompt, or tools exceed the context budget; reduce the input or retention settings before retrying\n")?;
+        }
+        return Ok(false);
+    }
+    let after = session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
+    if after > threshold {
+        tui.write("Retained input, system prompt, tools, or summary still exceeds the context budget; reduce the input or retention settings before retrying\n")?;
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -444,6 +482,9 @@ fn run_chat(
     )?;
 
     tui.write(NEW_SESSION_BANNER)?;
+    if max_context.is_none() && settings.enabled {
+        tui.write("Context capacity is unknown; automatic threshold compaction is disabled. Set local.context_window to enable it.\n")?;
+    }
 
     let mut prompt_history = Vec::new();
     let (model, provider, service_tier) = (model.model(), model.provider(), model.service_tier());
@@ -478,12 +519,15 @@ fn run_chat(
             prompt
         };
 
+        update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
         if user_prompt.trim() == "/new" {
             chat.session = chat::Session::new_system(&system_prompt);
             chat.save_session()?;
             session = credits::Session {
                 start_balance: session.curr_balance,
                 curr_balance: session.curr_balance,
+                context_ratio: session.context_ratio,
+                pending_summaries: std::mem::take(&mut session.pending_summaries),
                 ..Default::default()
             };
             update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
@@ -509,6 +553,8 @@ fn run_chat(
                 instructions,
                 tool_tokens,
                 &mut session,
+                compaction::Mode::Normal,
+                credits_gateway,
             )?;
             report_compaction(&mut tui, &outcome)?;
             update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
@@ -524,20 +570,20 @@ fn run_chat(
 
         let generation = (|| -> anyhow::Result<()> {
             let mut recovery_used = false;
-            let mut auto_compact_blocked = false;
             loop {
-                if !auto_compact_blocked {
-                    auto_compact_blocked = auto_compact(
-                        &mut chat,
-                        &client,
-                        chat_gateway,
-                        &mut tui,
-                        &settings,
-                        max_context,
-                        output_limit,
-                        tool_tokens,
-                        &mut session,
-                    )?;
+                if !auto_compact(
+                    &mut chat,
+                    &client,
+                    chat_gateway,
+                    &mut tui,
+                    &settings,
+                    max_context,
+                    output_limit,
+                    tool_tokens,
+                    &mut session,
+                    credits_gateway,
+                )? {
+                    break;
                 }
                 update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                 tui.accepting_input = false;
@@ -567,6 +613,12 @@ fn run_chat(
                 if !res.status().is_success() {
                     let status = res.status();
                     let body = res.text().unwrap_or_default();
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body)
+                        && let Ok(usage) =
+                            serde_json::from_value::<mi::completions::Usage>(value["usage"].clone())
+                    {
+                        session.save_usage(&usage);
+                    }
                     if !recovery_used && compaction::is_context_overflow(status, &body) {
                         let outcome = compact(
                             &mut chat,
@@ -579,6 +631,8 @@ fn run_chat(
                             "",
                             tool_tokens,
                             &mut session,
+                            compaction::Mode::Recovery,
+                            credits_gateway,
                         )?;
                         report_compaction(&mut tui, &outcome)?;
                         if matches!(outcome, CompactionOutcome::Compacted { .. }) {
@@ -586,6 +640,7 @@ fn run_chat(
                             update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                             continue;
                         }
+                        return Ok(());
                     }
                     anyhow::bail!("API {status} error: {body}");
                 }
@@ -618,26 +673,25 @@ fn run_chat(
                             break;
                         }
 
-                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
-                            && let Some(message) = value["error"]["message"].as_str()
-                        {
-                            stream_error = Some(message.to_owned());
-                            break;
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
+                            if let Ok(usage) = serde_json::from_value::<mi::completions::Usage>(
+                                value["usage"].clone(),
+                            ) {
+                                session.save_usage(&usage);
+                                let estimated = chat.session.estimate_active_tokens() + tool_tokens;
+                                if estimated > 0 && usage.prompt_tokens > 0 {
+                                    session.context_ratio =
+                                        (usage.prompt_tokens as f64 / estimated as f64).max(1.0);
+                                }
+                            }
+                            if !value["error"].is_null() {
+                                stream_error = Some(value["error"].to_string());
+                                break;
+                            }
                         }
 
                         match serde_json::from_str::<Answer>(data) {
                             Ok(v) => {
-                                if let Some(ref usage) = v.usage {
-                                    session.save_tokens(
-                                        usage.prompt_tokens,
-                                        usage.completion_tokens,
-                                        usage.prompt_tokens_details.cached_tokens,
-                                    );
-                                    if let Some(cost) = usage.cost {
-                                        session.save_cost(cost);
-                                    }
-                                }
-
                                 update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                                 let Some(choice) = v.choices.first() else {
                                     tui.draw()?;
@@ -732,6 +786,7 @@ fn run_chat(
                             .push((start, chat.session.messages.len()));
                         chat.save_session()?;
                     }
+                    update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                     let overflow = compaction::is_overflow_message(&message.to_lowercase());
                     if overflow && !recovery_used {
                         let outcome = compact(
@@ -745,6 +800,8 @@ fn run_chat(
                             "",
                             tool_tokens,
                             &mut session,
+                            compaction::Mode::Recovery,
+                            credits_gateway,
                         )?;
                         report_compaction(&mut tui, &outcome)?;
                         if matches!(outcome, CompactionOutcome::Compacted { .. }) {
@@ -752,6 +809,7 @@ fn run_chat(
                             update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                             continue;
                         }
+                        return Ok(());
                     }
                     anyhow::bail!("API error: {message}");
                 }
@@ -797,13 +855,18 @@ fn run_chat(
                 chat.session
                     .messages
                     .push(chat::Message::Assistant(assistant_message));
-                chat.save_session()?;
 
                 let has_tools = !tools.is_empty();
                 for tool in tools {
                     chat.session.messages.push(chat::Message::Tool(tool));
                 }
+                if truncated {
+                    chat.session
+                        .omitted
+                        .push((attempt_start, chat.session.messages.len()));
+                }
                 chat.save_session()?;
+                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
 
                 if truncated {
                     if recovery_used {
@@ -812,9 +875,6 @@ fn run_chat(
                         )?;
                         break;
                     }
-                    chat.session
-                        .omitted
-                        .push((attempt_start, chat.session.messages.len()));
                     let outcome = compact(
                         &mut chat,
                         &client,
@@ -826,6 +886,8 @@ fn run_chat(
                         "",
                         tool_tokens,
                         &mut session,
+                        compaction::Mode::Recovery,
+                        credits_gateway,
                     )?;
                     report_compaction(&mut tui, &outcome)?;
                     if matches!(outcome, CompactionOutcome::Compacted { .. }) {
@@ -844,6 +906,7 @@ fn run_chat(
 
             Ok(())
         })();
+        update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
         if let Err(error) = generation {
             if error
                 .downcast_ref::<std::io::Error>()

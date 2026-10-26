@@ -158,12 +158,20 @@ impl Session {
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
+        if self.version != SESSION_VERSION {
+            anyhow::bail!(
+                "unsupported session version {}; supported version is {SESSION_VERSION}",
+                self.version
+            );
+        }
         if self.messages.is_empty() {
             anyhow::bail!("session has no messages");
         }
         if !matches!(self.messages[0], Message::System(_)) {
             anyhow::bail!("session must start with a system message");
         }
+        let mut previous_boundary = 0;
+        let mut previous_extent = 0;
         for compaction in &self.compactions {
             if compaction.summary.trim().is_empty() {
                 anyhow::bail!("compaction has an empty summary");
@@ -184,16 +192,59 @@ impl Session {
                     self.messages.len()
                 );
             }
-            if matches!(
-                self.messages.get(compaction.first_kept_message_index),
-                Some(Message::Tool(_))
-            ) {
-                anyhow::bail!("compaction boundary begins with an orphaned tool result");
+            if compaction.first_kept_message_index > compaction.message_count_at_compaction {
+                anyhow::bail!("compaction boundary exceeds its recorded transcript extent");
             }
+            if compaction.first_kept_message_index <= previous_boundary
+                || compaction.message_count_at_compaction < previous_extent
+            {
+                anyhow::bail!(
+                    "compaction boundaries and transcript extents must advance chronologically"
+                );
+            }
+            previous_boundary = compaction.first_kept_message_index;
+            previous_extent = compaction.message_count_at_compaction;
         }
         for &(start, end) in &self.omitted {
             if start >= end || end > self.messages.len() {
                 anyhow::bail!("invalid omitted message range {start}..{end}");
+            }
+        }
+        for boundary in std::iter::once(1).chain(
+            self.compactions
+                .iter()
+                .map(|compaction| compaction.first_kept_message_index),
+        ) {
+            let mut pending = std::collections::BTreeSet::new();
+            for (index, message) in self.messages.iter().enumerate().skip(boundary) {
+                if self.is_omitted(index) {
+                    continue;
+                }
+                match message {
+                    Message::Tool(tool) => {
+                        if !pending.remove(tool.tool_call_id.as_str()) {
+                            anyhow::bail!("orphaned or duplicate tool result at message {index}");
+                        }
+                    }
+                    Message::Assistant(assistant) => {
+                        if !pending.is_empty() {
+                            anyhow::bail!("missing tool results before message {index}");
+                        }
+                        for call in assistant.tool_calls() {
+                            if !pending.insert(call.id()) {
+                                anyhow::bail!("duplicate tool call ID at message {index}");
+                            }
+                        }
+                    }
+                    _ => {
+                        if !pending.is_empty() {
+                            anyhow::bail!("missing tool results before message {index}");
+                        }
+                    }
+                }
+            }
+            if !pending.is_empty() {
+                anyhow::bail!("session ends with missing tool results");
             }
         }
         Ok(())

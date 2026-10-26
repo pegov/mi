@@ -128,3 +128,19 @@ pub struct PromptTokensDetails {
     #[serde(default)]
     pub cached_tokens: u64,
 }
+
+impl Usage {
+    pub fn accumulate(total: &mut Option<Self>, usage: &Self) {
+        if let Some(total) = total {
+            total.completion_tokens += usage.completion_tokens;
+            total.prompt_tokens += usage.prompt_tokens;
+            total.total_tokens += usage.total_tokens;
+            total.prompt_tokens_details.cached_tokens += usage.prompt_tokens_details.cached_tokens;
+            if let Some(cost) = usage.cost {
+                *total.cost.get_or_insert(0.0) += cost;
+            }
+        } else {
+            *total = Some(usage.clone());
+        }
+    }
+}
