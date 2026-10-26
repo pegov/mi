@@ -191,6 +191,10 @@ fn update_status(
         chat.model(),
         chat.reasoning(),
     );
+    if let Some(service_tier) = chat.service_tier() {
+        tui.status
+            .push_str(&format!(" | SERVICE TIER: {service_tier}"));
+    }
 }
 
 enum CompactionOutcome {
