@@ -226,26 +226,57 @@ fn compact(
 
         let mut previous_summary = preparation.previous_summary.clone();
         let mut usage = None;
-        for span in &preparation.spans {
-            let transcript = compaction::serialize_conversation(&chat.session, span);
-            let prompt = compaction::summary_prompt(
-                previous_summary.as_deref(),
-                Some(instructions),
-                &transcript,
-            );
-            let request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
+        let summary_requests = if settings.cache_aware {
+            1
+        } else {
+            preparation.spans.len()
+        };
+        for index in 0..summary_requests {
+            let mut request;
+            let request_tokens;
+            if settings.cache_aware {
+                let summarized_messages = preparation.spans.iter().map(Vec::len).sum::<usize>()
+                    + usize::from(preparation.previous_summary.is_some());
+                let mut prompt = compaction::summary_prompt(None, Some(instructions), None);
+                prompt.push_str(&format!(
+                    "\nSummarize only the first {summarized_messages} messages after the system message \
+                     in the conversation above, including any previous summary. \
+                     Later messages will be retained verbatim; do not summarize them.\n"
+                ));
+                request_tokens = session
+                    .estimate_context(chat.session.estimate_active_tokens() + tool_tokens)
+                    + compaction::estimate_text_tokens(&prompt)
+                    + 64;
+                request = serde_json::to_value(&*chat)?;
+                request["messages"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({
+                        "role": "user", "content": prompt,
+                    }));
+                request["stream"] = serde_json::json!(false);
+            } else {
+                let transcript =
+                    compaction::serialize_conversation(&chat.session, &preparation.spans[index]);
+                let prompt = compaction::summary_prompt(
+                    previous_summary.as_deref(),
+                    Some(instructions),
+                    Some(&transcript),
+                );
+                request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
+                request = compaction::summary_request(
+                    chat.model(),
+                    chat.providers(),
+                    chat.service_tier(),
+                    &prompt,
+                );
+            }
             let max_tokens =
                 match compaction::summary_budget(max_context, output_limit, request_tokens) {
                     Ok(value) => value,
                     Err(error) => return Ok(CompactionOutcome::Failed(error.to_string())),
                 };
-            let request = compaction::summary_request(
-                chat.model(),
-                chat.providers(),
-                chat.service_tier(),
-                &prompt,
-                max_tokens,
-            );
+            request["max_tokens"] = serde_json::json!(max_tokens);
 
             let (tx, rx) = mpsc::channel();
             let client = client.clone();
@@ -1034,7 +1065,13 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn start(cli: Cli) -> anyhow::Result<()> {
-    let config = parse_config()?;
+    let mut config = parse_config()?;
+    if let Some(cache_aware) = cli.cache_aware_compaction {
+        config
+            .compaction
+            .get_or_insert_with(CompactionConfig::default)
+            .cache_aware = Some(cache_aware);
+    }
 
     match cli.command {
         cmd::Command::Local {

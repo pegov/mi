@@ -6,6 +6,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
+    #[arg(
+        long,
+        global = true,
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        help = "Summarize using the conversation prefix for prompt caching (default: true; config: compaction.cache_aware)"
+    )]
+    pub cache_aware_compaction: Option<bool>,
     #[command(subcommand)]
     pub command: Command,
 }

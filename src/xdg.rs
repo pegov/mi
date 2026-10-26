@@ -19,6 +19,8 @@ pub struct Config {
 #[derive(Debug, Default, Deserialize)]
 pub struct CompactionConfig {
     pub enabled: Option<bool>,
+    #[serde(alias = "cacheAware")]
+    pub cache_aware: Option<bool>,
     #[serde(alias = "reserveTokens")]
     pub reserve_tokens: Option<u64>,
     #[serde(alias = "keepRecentTokens")]
