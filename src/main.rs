@@ -10,6 +10,7 @@ use mi::{
     assembler::Assembler,
     chan, chat,
     cmd::{self, Cli, OpenRouterModel, OpenRouterReasoning},
+    compaction,
     completions::{Answer, FinishReason},
     credits,
     event::{HandleEventsAction, handle_events},
@@ -19,7 +20,7 @@ use mi::{
     skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
     tool::{self, Tool},
     tui::Tui,
-    xdg::{get_root_agents_md, load_system_prompt_preset, parse_config},
+    xdg::{CompactionConfig, get_root_agents_md, load_system_prompt_preset, parse_config},
 };
 
 use clap::Parser;
@@ -166,10 +167,236 @@ impl ChatOptions {
     }
 }
 
+fn compact_instructions(prompt: &str) -> Option<&str> {
+    let prompt = prompt.trim();
+    if prompt == "/compact" {
+        return Some("");
+    }
+    prompt.strip_prefix("/compact ")
+}
+
+fn update_status(
+    tui: &mut Tui,
+    cursor: &Cursor,
+    session: &mut credits::Session,
+    chat: &chat::Chat,
+    tool_tokens: u64,
+) {
+    session.active_context_tokens = chat.session.estimate_active_tokens() + tool_tokens;
+    tui.status = cursor
+        .to_string(session)
+        .trim_end_matches("\n> ")
+        .to_owned();
+}
+
+enum CompactionOutcome {
+    Compacted { before: u64, after: u64 },
+    Nothing,
+    Cancelled,
+    Failed(String),
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compact(
+    chat: &mut chat::Chat,
+    client: &reqwest::blocking::Client,
+    url: &str,
+    tui: &mut Tui,
+    settings: &compaction::Settings,
+    max_context: Option<u64>,
+    output_limit: Option<u64>,
+    instructions: &str,
+    tool_tokens: u64,
+    session: &mut credits::Session,
+) -> anyhow::Result<CompactionOutcome> {
+    let Some(preparation) = compaction::prepare(&chat.session, settings.keep_recent_tokens) else {
+        return Ok(CompactionOutcome::Nothing);
+    };
+
+    tui.accepting_input = false;
+    tui.activity = Some("Compacting");
+    tui.draw()?;
+
+    let mut previous_summary = preparation.previous_summary.clone();
+    let mut usage = None;
+    for span in &preparation.spans {
+        let transcript = compaction::serialize_conversation(&chat.session, span);
+        let prompt = compaction::summary_prompt(
+            previous_summary.as_deref(),
+            Some(instructions),
+            &transcript,
+        );
+        let request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
+        let max_tokens = match compaction::summary_budget(max_context, output_limit, request_tokens)
+        {
+            Ok(value) => value,
+            Err(error) => return Ok(CompactionOutcome::Failed(error.to_string())),
+        };
+        let request = compaction::summary_request(
+            chat.model(),
+            chat.providers(),
+            chat.service_tier(),
+            &prompt,
+            max_tokens,
+        );
+
+        let (tx, rx) = mpsc::channel();
+        let client = client.clone();
+        let url = url.to_owned();
+        thread::spawn(move || {
+            let _ = tx.send(compaction::request_summary(&client, &url, &request));
+        });
+        let result = match tui.recv(&rx) {
+            Ok(Some(result)) => result,
+            Ok(None) => return Ok(CompactionOutcome::Failed("worker disconnected".into())),
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::Interrupted) =>
+            {
+                return Ok(CompactionOutcome::Cancelled);
+            }
+            Err(error) => return Err(error),
+        };
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(compaction::SummaryFailure::Overflow) => {
+                return Ok(CompactionOutcome::Failed(
+                    "context overflow while generating the summary".into(),
+                ));
+            }
+            Err(compaction::SummaryFailure::Empty) => {
+                return Ok(CompactionOutcome::Failed(
+                    "the model returned an empty summary".into(),
+                ));
+            }
+            Err(compaction::SummaryFailure::Error(message)) => {
+                return Ok(CompactionOutcome::Failed(message));
+            }
+        };
+        if let Some(ref reported) = outcome.usage {
+            session.save_tokens(
+                reported.prompt_tokens,
+                reported.completion_tokens,
+                reported.prompt_tokens_details.cached_tokens,
+            );
+            if let Some(cost) = reported.cost {
+                session.save_cost(cost);
+            }
+            usage = outcome.usage.clone();
+        }
+        previous_summary = Some(outcome.text);
+    }
+
+    let Some(summary) = previous_summary else {
+        return Ok(CompactionOutcome::Nothing);
+    };
+    let summary = compaction::append_file_lists(
+        summary,
+        &preparation.read_files,
+        &preparation.modified_files,
+    );
+
+    let mut candidate = chat.session.clone();
+    candidate.compactions.push(chat::Compaction {
+        summary,
+        first_kept_message_index: preparation.first_kept_message_index,
+        message_count_at_compaction: chat.session.messages.len(),
+        tokens_before: preparation.tokens_before,
+        usage,
+        read_files: preparation.read_files,
+        modified_files: preparation.modified_files,
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |value| value.as_secs()),
+    });
+    if let Err(error) = candidate.validate() {
+        return Ok(CompactionOutcome::Failed(error.to_string()));
+    }
+    let after = candidate.estimate_active_tokens() + tool_tokens;
+    let before = preparation.tokens_before + tool_tokens;
+    if after >= before {
+        return Ok(CompactionOutcome::Failed(
+            "compaction did not reduce the context".into(),
+        ));
+    }
+
+    let previous = std::mem::replace(&mut chat.session, candidate);
+    if let Err(error) = chat.save_session() {
+        chat.session = previous;
+        return Ok(CompactionOutcome::Failed(format!(
+            "could not persist the compaction: {error}"
+        )));
+    }
+    Ok(CompactionOutcome::Compacted { before, after })
+}
+
+fn report_compaction(tui: &mut Tui, outcome: &CompactionOutcome) -> anyhow::Result<()> {
+    tui.activity = None;
+    tui.finish()?;
+    match outcome {
+        CompactionOutcome::Compacted { before, after } => tui.write(&format!(
+            "Compacted context: approximately {before} -> {after} tokens\n"
+        )),
+        CompactionOutcome::Nothing => tui.write("Nothing to compact\n"),
+        CompactionOutcome::Cancelled => tui.write("Compaction cancelled\n"),
+        CompactionOutcome::Failed(message) => tui.write(&format!("Compaction failed: {message}\n")),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn auto_compact(
+    chat: &mut chat::Chat,
+    client: &reqwest::blocking::Client,
+    url: &str,
+    tui: &mut Tui,
+    settings: &compaction::Settings,
+    max_context: Option<u64>,
+    output_limit: Option<u64>,
+    tool_tokens: u64,
+    session: &mut credits::Session,
+) -> anyhow::Result<bool> {
+    if !settings.enabled {
+        return Ok(false);
+    }
+    let Some(max_context) = max_context else {
+        return Ok(false);
+    };
+    let Some(threshold) = max_context.checked_sub(settings.reserve_tokens) else {
+        tui.write("Compaction reserve is larger than the context window\n")?;
+        return Ok(true);
+    };
+    let estimated = chat.session.estimate_active_tokens() + tool_tokens;
+    if estimated <= threshold {
+        return Ok(false);
+    }
+    if settings.keep_recent_tokens >= max_context {
+        tui.write("Compaction keepRecentTokens is larger than the context window\n")?;
+        return Ok(true);
+    }
+    let outcome = compact(
+        chat,
+        client,
+        url,
+        tui,
+        settings,
+        Some(max_context),
+        output_limit,
+        "",
+        tool_tokens,
+        session,
+    )?;
+    report_compaction(tui, &outcome)?;
+    Ok(!matches!(outcome, CompactionOutcome::Compacted { .. }))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_chat(
     model: OpenRouterModel,
     reasoning_effort: OpenRouterReasoning,
-    max_context: u64,
+    max_context: Option<u64>,
+    output_limit: Option<u64>,
+    compaction_config: Option<CompactionConfig>,
     credits_gateway: Option<&str>,
     chat_gateway: &str,
     system_prompt_presets: &[String],
@@ -189,6 +416,7 @@ fn run_chat(
         credits::Session::default()
     };
 
+    let settings = compaction::Settings::resolve(compaction_config.as_ref(), model.model())?;
     let cursor = Cursor::new(max_context);
 
     let skills = parse_skills()?;
@@ -206,6 +434,7 @@ fn run_chat(
         tool::EditTool,
         tool::BashTool::new(300, 300),
     ];
+    let tool_tokens = compaction::estimate_tools_tokens(&tool_registry.defs);
 
     let mut tui = Tui::new(
         cursor
@@ -230,6 +459,7 @@ fn run_chat(
     if resume {
         chat.resume()?;
     }
+    update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
 
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
@@ -249,19 +479,14 @@ fn run_chat(
         };
 
         if user_prompt.trim() == "/new" {
-            chat.messages = vec![chat::Message::System(chat::SimpleMessage::new(
-                &system_prompt,
-            ))];
-            chat.save_messages()?;
+            chat.session = chat::Session::new_system(&system_prompt);
+            chat.save_session()?;
             session = credits::Session {
                 start_balance: session.curr_balance,
                 curr_balance: session.curr_balance,
                 ..Default::default()
             };
-            tui.status = cursor
-                .to_string(&session)
-                .trim_end_matches("\n> ")
-                .to_owned();
+            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
             tui.write(NEW_SESSION_BANNER)?;
             if oneshot.is_some() {
                 break;
@@ -271,12 +496,50 @@ fn run_chat(
         if user_prompt.is_empty() {
             break;
         }
+        if let Some(instructions) = compact_instructions(&user_prompt) {
+            tui.accepting_input = false;
+            let outcome = compact(
+                &mut chat,
+                &client,
+                chat_gateway,
+                &mut tui,
+                &settings,
+                max_context,
+                output_limit,
+                instructions,
+                tool_tokens,
+                &mut session,
+            )?;
+            report_compaction(&mut tui, &outcome)?;
+            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+            if oneshot.is_some() {
+                break;
+            }
+            continue;
+        }
         apply_skill(&skills, &mut user_prompt, &mut tui)?;
-        chat.messages
+        chat.session
+            .messages
             .push(chat::Message::User(chat::SimpleMessage::new(&user_prompt)));
 
         let generation = (|| -> anyhow::Result<()> {
+            let mut recovery_used = false;
+            let mut auto_compact_blocked = false;
             loop {
+                if !auto_compact_blocked {
+                    auto_compact_blocked = auto_compact(
+                        &mut chat,
+                        &client,
+                        chat_gateway,
+                        &mut tui,
+                        &settings,
+                        max_context,
+                        output_limit,
+                        tool_tokens,
+                        &mut session,
+                    )?;
+                }
+                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                 tui.accepting_input = false;
                 tui.activity = Some("Thinking");
                 tui.draw()?;
@@ -285,10 +548,10 @@ fn run_chat(
                 let mut a = Assembler::default();
 
                 let request = client.post(chat_gateway).json(&chat).build()?;
-                let client = client.clone();
+                let thread_client = client.clone();
                 let (tx, rx) = mpsc::channel();
                 thread::spawn(move || {
-                    let _ = tx.send(client.execute(request));
+                    let _ = tx.send(thread_client.execute(request));
                 });
                 let res = tui
                     .recv(&rx)?
@@ -301,7 +564,31 @@ fn run_chat(
                         tui.write("no header\n")?;
                     }
                 }
-                let res = res.error_for_status()?;
+                if !res.status().is_success() {
+                    let status = res.status();
+                    let body = res.text().unwrap_or_default();
+                    if !recovery_used && compaction::is_context_overflow(status, &body) {
+                        let outcome = compact(
+                            &mut chat,
+                            &client,
+                            chat_gateway,
+                            &mut tui,
+                            &settings,
+                            max_context,
+                            output_limit,
+                            "",
+                            tool_tokens,
+                            &mut session,
+                        )?;
+                        report_compaction(&mut tui, &outcome)?;
+                        if matches!(outcome, CompactionOutcome::Compacted { .. }) {
+                            recovery_used = true;
+                            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                            continue;
+                        }
+                    }
+                    anyhow::bail!("API {status} error: {body}");
+                }
 
                 let (tx, rx) = mpsc::channel();
                 thread::spawn(move || {
@@ -312,6 +599,8 @@ fn run_chat(
                     }
                 });
 
+                let mut finish_reason = None;
+                let mut stream_error = None;
                 while let Some(line) = tui.recv(&rx)? {
                     let line = line?;
 
@@ -332,9 +621,8 @@ fn run_chat(
                         if let Ok(value) = serde_json::from_str::<serde_json::Value>(data)
                             && let Some(message) = value["error"]["message"].as_str()
                         {
-                            tui.finish()?;
-                            tui.write(&format!("API error: {message}\n"))?;
-                            continue;
+                            stream_error = Some(message.to_owned());
+                            break;
                         }
 
                         match serde_json::from_str::<Answer>(data) {
@@ -350,10 +638,7 @@ fn run_chat(
                                     }
                                 }
 
-                                tui.status = cursor
-                                    .to_string(&session)
-                                    .trim_end_matches("\n> ")
-                                    .to_owned();
+                                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                                 let Some(choice) = v.choices.first() else {
                                     tui.draw()?;
                                     continue;
@@ -384,8 +669,15 @@ fn run_chat(
                                     tui.activity = Some("Tool-calling");
                                 }
 
-                                if let Some(FinishReason::Stop | FinishReason::ToolCalls) =
-                                    choice.finish_reason
+                                if choice.finish_reason.is_some() {
+                                    finish_reason = choice.finish_reason.clone();
+                                }
+
+                                if let Some(
+                                    FinishReason::Stop
+                                    | FinishReason::ToolCalls
+                                    | FinishReason::Length,
+                                ) = choice.finish_reason
                                 {
                                     tui.finish()?;
                                 } else {
@@ -405,11 +697,64 @@ fn run_chat(
                     session.update(&credits);
                 }
 
-                tui.status = cursor
-                    .to_string(&session)
-                    .trim_end_matches("\n> ")
-                    .to_owned();
+                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
                 tui.finish()?;
+
+                if let Some(message) = stream_error {
+                    let am = a.assemble();
+                    if am.content.as_deref().is_some_and(|c| !c.is_empty())
+                        || !am.tool_calls.is_empty()
+                    {
+                        let start = chat.session.messages.len();
+                        let tool_calls = am
+                            .tool_calls
+                            .iter()
+                            .map(chat::ToolCall::from)
+                            .collect::<Vec<_>>();
+                        let failed = am
+                            .tool_calls
+                            .iter()
+                            .map(|call| {
+                                chat::Tool::new(
+                                    call.id.clone(),
+                                    "Tool call abandoned: the response failed.".into(),
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        chat.session.messages.push(chat::Message::Assistant(
+                            chat::AssistantMessage::new(am.content, tool_calls),
+                        ));
+                        chat.session
+                            .messages
+                            .extend(failed.into_iter().map(chat::Message::Tool));
+                        chat.session
+                            .omitted
+                            .push((start, chat.session.messages.len()));
+                        chat.save_session()?;
+                    }
+                    let overflow = compaction::is_overflow_message(&message.to_lowercase());
+                    if overflow && !recovery_used {
+                        let outcome = compact(
+                            &mut chat,
+                            &client,
+                            chat_gateway,
+                            &mut tui,
+                            &settings,
+                            max_context,
+                            output_limit,
+                            "",
+                            tool_tokens,
+                            &mut session,
+                        )?;
+                        report_compaction(&mut tui, &outcome)?;
+                        if matches!(outcome, CompactionOutcome::Compacted { .. }) {
+                            recovery_used = true;
+                            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                            continue;
+                        }
+                    }
+                    anyhow::bail!("API error: {message}");
+                }
 
                 let am = a.assemble();
 
@@ -419,13 +764,20 @@ fn run_chat(
                 let mut chat_tool_calls: Vec<chat::ToolCall> =
                     Vec::with_capacity(am.tool_calls.len());
 
+                let truncated = matches!(finish_reason, Some(FinishReason::Length));
+
                 for tool_call in am.tool_calls.iter() {
                     tui.activity = Some("Tool-calling");
                     tui.tool(&tool_call.function, &tool_call.arguments)?;
 
                     chat_tool_calls.push(chat::ToolCall::from(tool_call));
 
-                    if let Some(tool_impl) = tool_registry.get_mut(&tool_call.function) {
+                    if truncated {
+                        tools.push(chat::Tool::new(
+                            tool_call.id.clone(),
+                            "Tool call abandoned: the response was truncated.".into(),
+                        ));
+                    } else if let Some(tool_impl) = tool_registry.get_mut(&tool_call.function) {
                         let result = tui
                             .run(|| tool_impl.call(&tool_call.arguments))?
                             .unwrap_or_else(|e| format!("failed to call tool: {e}"));
@@ -440,19 +792,54 @@ fn run_chat(
                     }
                 }
 
+                let attempt_start = chat.session.messages.len();
                 let assistant_message = chat::AssistantMessage::new(content, chat_tool_calls);
-                chat.messages
+                chat.session
+                    .messages
                     .push(chat::Message::Assistant(assistant_message));
-                chat.save_messages()?;
+                chat.save_session()?;
 
-                if tools.is_empty() {
+                let has_tools = !tools.is_empty();
+                for tool in tools {
+                    chat.session.messages.push(chat::Message::Tool(tool));
+                }
+                chat.save_session()?;
+
+                if truncated {
+                    if recovery_used {
+                        tui.write(
+                            "Response was truncated and compaction already made one attempt\n",
+                        )?;
+                        break;
+                    }
+                    chat.session
+                        .omitted
+                        .push((attempt_start, chat.session.messages.len()));
+                    let outcome = compact(
+                        &mut chat,
+                        &client,
+                        chat_gateway,
+                        &mut tui,
+                        &settings,
+                        max_context,
+                        output_limit,
+                        "",
+                        tool_tokens,
+                        &mut session,
+                    )?;
+                    report_compaction(&mut tui, &outcome)?;
+                    if matches!(outcome, CompactionOutcome::Compacted { .. }) {
+                        recovery_used = true;
+                        update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                        continue;
+                    }
+                    chat.save_session()?;
                     break;
                 }
 
-                for tool in tools {
-                    chat.messages.push(chat::Message::Tool(tool));
+                if !has_tools {
+                    break;
                 }
-                chat.save_messages()?;
             }
 
             Ok(())
@@ -465,7 +852,7 @@ fn run_chat(
                 tui.activity = None;
                 tui.finish()?;
                 tui.write("Interrupted\n")?;
-                chat.save_messages()?;
+                chat.save_session()?;
             } else {
                 return Err(error);
             }
@@ -480,7 +867,12 @@ fn run_chat(
     Ok(())
 }
 
-fn get_max_context(url: &str, model: &OpenRouterModel) -> anyhow::Result<u64> {
+struct ModelLimits {
+    context: u64,
+    output: Option<u64>,
+}
+
+fn get_model_limits(url: &str, model: &OpenRouterModel) -> anyhow::Result<ModelLimits> {
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
         .build()?;
@@ -519,8 +911,15 @@ fn get_max_context(url: &str, model: &OpenRouterModel) -> anyhow::Result<u64> {
             continue;
         }
 
-        let context_length = model["context_length"].as_u64().unwrap();
-        return Ok(context_length);
+        let context = model["context_length"]
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("model has no context_length"))?;
+        let output = model["top_provider"]["max_completion_tokens"]
+            .as_u64()
+            .filter(|&value| value > 0)
+            .or_else(|| model["top_provider"]["max_output_tokens"].as_u64())
+            .filter(|&value| value > 0);
+        return Ok(ModelLimits { context, output });
     }
 
     anyhow::bail!("failed to find model");
@@ -596,7 +995,9 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             run_chat(
                 OpenRouterModel::None,
                 OpenRouterReasoning::None,
-                0,
+                config.local.context_window,
+                None,
+                config.compaction,
                 None,
                 &chat_completions_url,
                 &profile.spp,
@@ -635,7 +1036,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             }
 
             let models_url = format!("{base_url}/models");
-            let max_context = get_max_context(&models_url, &model)?;
+            let limits = get_model_limits(&models_url, &model)?;
 
             let opts = ChatOptions::default()
                 .with_resume(resume)
@@ -646,7 +1047,9 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             run_chat(
                 model,
                 reasoning,
-                max_context,
+                Some(limits.context),
+                limits.output,
+                config.compaction,
                 Some(&credits_url),
                 &chat_completions_url,
                 &profile.spp,

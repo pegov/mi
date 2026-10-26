@@ -102,14 +102,15 @@ pub struct Choice {
     pub logprobs: Option<()>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FinishReason {
     Stop,
     ToolCalls,
+    Length,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Usage {
     pub completion_tokens: u64,
@@ -121,7 +122,7 @@ pub struct Usage {
     pub prompt_tokens_details: PromptTokensDetails,
 }
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct PromptTokensDetails {
     #[serde(default)]

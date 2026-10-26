@@ -2,6 +2,7 @@ pub mod assembler;
 pub mod chan;
 pub mod chat;
 pub mod cmd;
+pub mod compaction;
 pub mod completions;
 pub mod copy;
 pub mod credits;

@@ -12,6 +12,27 @@ pub struct Config {
     pub jev: JevConfig,
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
+    #[serde(default)]
+    pub compaction: Option<CompactionConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct CompactionConfig {
+    pub enabled: Option<bool>,
+    #[serde(alias = "reserveTokens")]
+    pub reserve_tokens: Option<u64>,
+    #[serde(alias = "keepRecentTokens")]
+    pub keep_recent_tokens: Option<u64>,
+    #[serde(default, alias = "modelOverrides")]
+    pub model_overrides: Option<HashMap<String, ModelOverride>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct ModelOverride {
+    #[serde(alias = "reserveTokens")]
+    pub reserve_tokens: Option<u64>,
+    #[serde(alias = "keepRecentTokens")]
+    pub keep_recent_tokens: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -58,6 +79,8 @@ impl Config {
 #[derive(Debug, Deserialize)]
 pub struct LocalConfig {
     pub base_url: String,
+    #[serde(default, alias = "contextWindow")]
+    pub context_window: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

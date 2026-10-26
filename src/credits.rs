@@ -18,6 +18,7 @@ pub struct Session {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_tokens: u64,
+    pub active_context_tokens: u64,
 }
 
 impl Session {
@@ -28,6 +29,7 @@ impl Session {
             input_tokens: 0,
             output_tokens: 0,
             cache_tokens: 0,
+            active_context_tokens: 0,
         }
     }
 

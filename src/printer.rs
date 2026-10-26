@@ -37,30 +37,30 @@ pub const ANSI_HIDE_CURSOR: &str = "\x1b[?25l";
 pub const ANSI_SHOW_CURSOR: &str = "\x1b[?25h";
 
 pub struct Cursor {
-    max_context: u64,
+    max_context: Option<u64>,
 }
 
 impl Cursor {
-    pub fn new(max_context: u64) -> Self {
+    pub fn new(max_context: Option<u64>) -> Self {
         Self { max_context }
     }
 
     pub fn to_string(&self, session: &credits::Session) -> String {
-        let used_context_percentage = if self.max_context == 0 {
-            0.0
+        let used_context_percentage = if let Some(max_context) = self.max_context {
+            session.active_context_tokens as f64 * 100.0 / max_context as f64
         } else {
-            let total_tokens = session.input_tokens + session.output_tokens;
-            total_tokens as f64 * 100.0 / self.max_context as f64
+            0.0
         };
 
         format!(
-            "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT / {} MAX ({:.2}%)\n> ",
+            "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT, {} CONTEXT / {} MAX ({:.2}%)\n> ",
             session.delta_string(),
             session.remaining_string(),
             format_tokens_count(session.input_tokens),
             format_tokens_count(session.cache_tokens),
             format_tokens_count(session.output_tokens),
-            format_tokens_count(self.max_context),
+            format_tokens_count(session.active_context_tokens),
+            self.max_context.map_or("?".into(), format_tokens_count),
             used_context_percentage,
         )
     }
