@@ -19,7 +19,7 @@ pub struct Cli {
         long,
         global = true,
         value_name = "PERCENT",
-        help = "Compact when this percentage of the context window is used (default: 50; config: compaction.compact_at_percent)"
+        help = "Compact when this percentage of the context window is used (default: 45; config: compaction.compact_at_percent)"
     )]
     pub compaction_at_percent: Option<u64>,
     #[command(subcommand)]

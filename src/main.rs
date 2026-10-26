@@ -354,12 +354,7 @@ fn compact(
 
         if mode == compaction::Mode::Recovery
             && let Some(window) = max_context
-            && session.estimate_context(after)
-                > if settings.enabled {
-                    compaction::threshold(window, settings.compact_at_percent)
-                } else {
-                    window
-                }
+            && session.estimate_context(after) > window
         {
             return Ok(CompactionOutcome::Failed(
                 "retained input, system prompt, tools, or summary still exceeds the context window"
@@ -423,10 +418,6 @@ fn auto_compact(
     if estimated <= threshold {
         return Ok(true);
     }
-    if settings.keep_recent_tokens >= max_context {
-        tui.write("Compaction keepRecentTokens is larger than the context window\n")?;
-        return Ok(false);
-    }
     let outcome = compact(
         chat,
         client,
@@ -442,14 +433,14 @@ fn auto_compact(
         credits_gateway,
     )?;
     report_compaction(tui, &outcome)?;
-    if !matches!(outcome, CompactionOutcome::Compacted { .. }) {
-        if matches!(outcome, CompactionOutcome::Nothing) {
-            tui.write("Generation stopped: the retained input, system prompt, or tools exceed the context budget; reduce the input or retention settings before retrying\n")?;
-        }
+    if matches!(
+        outcome,
+        CompactionOutcome::Cancelled | CompactionOutcome::Failed(_)
+    ) {
         return Ok(false);
     }
     let after = session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
-    if after > threshold {
+    if after > max_context {
         tui.write("Retained input, system prompt, tools, or summary still exceeds the context budget; reduce the input or retention settings before retrying\n")?;
         return Ok(false);
     }
@@ -1070,10 +1061,15 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             .cache_aware = Some(cache_aware);
     }
     if let Some(percent) = cli.compaction_at_percent {
-        config
+        let compaction = config
             .compaction
-            .get_or_insert_with(CompactionConfig::default)
-            .compact_at_percent = Some(percent);
+            .get_or_insert_with(CompactionConfig::default);
+        compaction.compact_at_percent = Some(percent);
+        if let Some(overrides) = &mut compaction.model_overrides {
+            for override_ in overrides.values_mut() {
+                override_.compact_at_percent = Some(percent);
+            }
+        }
     }
 
     match cli.command {

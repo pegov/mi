@@ -6,7 +6,7 @@ use crate::{
     xdg::CompactionConfig,
 };
 
-pub const DEFAULT_COMPACT_AT_PERCENT: u64 = 50;
+pub const DEFAULT_COMPACT_AT_PERCENT: u64 = 45;
 pub const DEFAULT_KEEP_RECENT_TOKENS: u64 = 20_000;
 pub const DEFAULT_OUTPUT_TOKENS: u64 = 8_192;
 pub const TOOL_RESULT_LIMIT: usize = 2_000;
