@@ -211,6 +211,22 @@ pub enum OpenRouterReasoning {
     High,
 }
 
+impl std::str::FromStr for OpenRouterModel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        clap::ValueEnum::from_str(s, true)
+    }
+}
+
+impl std::str::FromStr for OpenRouterReasoning {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        clap::ValueEnum::from_str(s, true)
+    }
+}
+
 impl OpenRouterReasoning {
     pub fn as_str(&self) -> &str {
         match *self {

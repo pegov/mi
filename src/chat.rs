@@ -53,6 +53,20 @@ impl Chat {
         &self.model
     }
 
+    pub fn set_model(&mut self, model: &crate::cmd::OpenRouterModel) {
+        self.model = model.model().into();
+        self.providers = model.provider();
+        self.service_tier = model.service_tier();
+    }
+
+    pub fn reasoning(&self) -> &str {
+        self.reasoning.effort.as_str()
+    }
+
+    pub fn set_reasoning(&mut self, effort: OpenRouterReasoning) {
+        self.reasoning = Reasoning::new(effort);
+    }
+
     pub fn providers(&self) -> &serde_json::Value {
         &self.providers
     }

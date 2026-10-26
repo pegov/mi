@@ -185,10 +185,12 @@ fn update_status(
     session.collect_summary_usage();
     session.active_context_tokens =
         session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
-    tui.status = cursor
-        .to_string(session)
-        .trim_end_matches("\n> ")
-        .to_owned();
+    tui.status = format!(
+        "{} | MODEL: {} | REASONING: {}",
+        cursor.to_string(session).trim_end_matches("\n> "),
+        chat.model(),
+        chat.reasoning(),
+    );
 }
 
 enum CompactionOutcome {
@@ -449,7 +451,7 @@ fn auto_compact(
 
 #[allow(clippy::too_many_arguments)]
 fn run_chat(
-    model: OpenRouterModel,
+    mut model: OpenRouterModel,
     reasoning_effort: OpenRouterReasoning,
     max_context: Option<u64>,
     output_limit: Option<u64>,
@@ -473,7 +475,7 @@ fn run_chat(
         credits::Session::default()
     };
 
-    let settings = compaction::Settings::resolve(compaction_config.as_ref(), model.model())?;
+    let mut settings = compaction::Settings::resolve(compaction_config.as_ref(), model.model())?;
     let cursor = Cursor::new(max_context);
 
     let skills = parse_skills()?;
@@ -506,12 +508,11 @@ fn run_chat(
     }
 
     let mut prompt_history = Vec::new();
-    let (model, provider, service_tier) = (model.model(), model.provider(), model.service_tier());
 
     let mut chat = chat::Chat::new(
-        model,
-        provider,
-        service_tier,
+        model.model(),
+        model.provider(),
+        model.service_tier(),
         reasoning_effort,
         tool_registry.defs.clone(),
         &system_prompt,
@@ -539,6 +540,49 @@ fn run_chat(
         };
 
         update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+        let prompt = user_prompt.trim();
+        let (word, arg) = prompt
+            .split_once(char::is_whitespace)
+            .unwrap_or((prompt, ""));
+        let arg = arg.trim();
+        if matches!(word, "/model" | "/m") {
+            match arg.parse::<OpenRouterModel>() {
+                Ok(new_model) => {
+                    match compaction::Settings::resolve(
+                        compaction_config.as_ref(),
+                        new_model.model(),
+                    ) {
+                        Ok(new_settings) => {
+                            model = new_model;
+                            chat.set_model(&model);
+                            settings = new_settings;
+                            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                            tui.write(&format!("model: {} ({})\n", model.as_str(), model.model()))?;
+                        }
+                        Err(error) => tui.write(&format!("failed to change model: {error}\n"))?,
+                    }
+                }
+                Err(_) => tui.write(&format!("unknown model: {arg}\n"))?,
+            }
+            if oneshot.is_some() {
+                break;
+            }
+            continue;
+        }
+        if matches!(word, "/reasoning" | "/r") {
+            match arg.parse::<OpenRouterReasoning>() {
+                Ok(reasoning) => {
+                    chat.set_reasoning(reasoning);
+                    update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                    tui.write(&format!("reasoning: {}\n", chat.reasoning()))?;
+                }
+                Err(_) => tui.write(&format!("unknown reasoning level: {arg}\n"))?,
+            }
+            if oneshot.is_some() {
+                break;
+            }
+            continue;
+        }
         if user_prompt.trim() == "/new" {
             chat.session = chat::Session::new_system(&system_prompt);
             chat.save_session()?;
