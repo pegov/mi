@@ -26,6 +26,7 @@ use mi::{
 use clap::Parser;
 use crossterm::{ExecutableCommand, event::DisableBracketedPaste, terminal::disable_raw_mode};
 use reqwest::Url;
+use serde::Deserialize;
 
 #[derive(Default)]
 struct Tools {
@@ -143,6 +144,7 @@ struct ChatOptions {
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
     oneshot: Option<String>,
+    model_modalities: Option<String>,
 }
 
 impl ChatOptions {
@@ -181,14 +183,16 @@ fn update_status(
     session: &mut credits::Session,
     chat: &chat::Chat,
     tool_tokens: u64,
+    model_modalities: Option<&str>,
 ) {
     session.collect_summary_usage();
     session.active_context_tokens =
         session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
     tui.status = format!(
-        "{} | MODEL: {} | REASONING: {}",
+        "{} | MODEL: {}{} | REASONING: {}",
         cursor.to_string(session).trim_end_matches("\n> "),
         chat.model(),
+        model_modalities.map_or_else(String::new, |modalities| format!(" ({modalities})")),
         chat.reasoning(),
     );
     if let Some(service_tier) = chat.service_tier() {
@@ -524,7 +528,14 @@ fn run_chat(
     if resume {
         chat.resume()?;
     }
-    update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+    update_status(
+        &mut tui,
+        &cursor,
+        &mut session,
+        &chat,
+        tool_tokens,
+        opts.model_modalities.as_deref(),
+    );
 
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
@@ -543,7 +554,14 @@ fn run_chat(
             prompt
         };
 
-        update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+        update_status(
+            &mut tui,
+            &cursor,
+            &mut session,
+            &chat,
+            tool_tokens,
+            opts.model_modalities.as_deref(),
+        );
         let prompt = user_prompt.trim();
         let (word, arg) = prompt
             .split_once(char::is_whitespace)
@@ -560,7 +578,14 @@ fn run_chat(
                             model = new_model;
                             chat.set_model(&model);
                             settings = new_settings;
-                            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                            update_status(
+                                &mut tui,
+                                &cursor,
+                                &mut session,
+                                &chat,
+                                tool_tokens,
+                                opts.model_modalities.as_deref(),
+                            );
                             tui.write(&format!("model: {} ({})\n", model.as_str(), model.model()))?;
                         }
                         Err(error) => tui.write(&format!("failed to change model: {error}\n"))?,
@@ -577,7 +602,14 @@ fn run_chat(
             match arg.parse::<OpenRouterReasoning>() {
                 Ok(reasoning) => {
                     chat.set_reasoning(reasoning);
-                    update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                    update_status(
+                        &mut tui,
+                        &cursor,
+                        &mut session,
+                        &chat,
+                        tool_tokens,
+                        opts.model_modalities.as_deref(),
+                    );
                     tui.write(&format!("reasoning: {}\n", chat.reasoning()))?;
                 }
                 Err(_) => tui.write(&format!("unknown reasoning level: {arg}\n"))?,
@@ -597,7 +629,14 @@ fn run_chat(
                 pending_summaries: std::mem::take(&mut session.pending_summaries),
                 ..Default::default()
             };
-            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+            update_status(
+                &mut tui,
+                &cursor,
+                &mut session,
+                &chat,
+                tool_tokens,
+                opts.model_modalities.as_deref(),
+            );
             tui.write(NEW_SESSION_BANNER)?;
             if oneshot.is_some() {
                 break;
@@ -624,7 +663,14 @@ fn run_chat(
                 credits_gateway,
             )?;
             report_compaction(&mut tui, &outcome)?;
-            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+            update_status(
+                &mut tui,
+                &cursor,
+                &mut session,
+                &chat,
+                tool_tokens,
+                opts.model_modalities.as_deref(),
+            );
             if oneshot.is_some() {
                 break;
             }
@@ -652,7 +698,14 @@ fn run_chat(
                 )? {
                     break;
                 }
-                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                update_status(
+                    &mut tui,
+                    &cursor,
+                    &mut session,
+                    &chat,
+                    tool_tokens,
+                    opts.model_modalities.as_deref(),
+                );
                 tui.accepting_input = false;
                 tui.activity = Some("Thinking");
                 tui.draw()?;
@@ -704,7 +757,14 @@ fn run_chat(
                         report_compaction(&mut tui, &outcome)?;
                         if matches!(outcome, CompactionOutcome::Compacted { .. }) {
                             recovery_used = true;
-                            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                            update_status(
+                                &mut tui,
+                                &cursor,
+                                &mut session,
+                                &chat,
+                                tool_tokens,
+                                opts.model_modalities.as_deref(),
+                            );
                             continue;
                         }
                         return Ok(());
@@ -759,7 +819,14 @@ fn run_chat(
 
                         match serde_json::from_str::<Answer>(data) {
                             Ok(v) => {
-                                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                                update_status(
+                                    &mut tui,
+                                    &cursor,
+                                    &mut session,
+                                    &chat,
+                                    tool_tokens,
+                                    opts.model_modalities.as_deref(),
+                                );
                                 let Some(choice) = v.choices.first() else {
                                     tui.draw()?;
                                     continue;
@@ -818,7 +885,14 @@ fn run_chat(
                     session.update(&credits);
                 }
 
-                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                update_status(
+                    &mut tui,
+                    &cursor,
+                    &mut session,
+                    &chat,
+                    tool_tokens,
+                    opts.model_modalities.as_deref(),
+                );
                 tui.finish()?;
 
                 if let Some(message) = stream_error {
@@ -853,7 +927,14 @@ fn run_chat(
                             .push((start, chat.session.messages.len()));
                         chat.save_session()?;
                     }
-                    update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                    update_status(
+                        &mut tui,
+                        &cursor,
+                        &mut session,
+                        &chat,
+                        tool_tokens,
+                        opts.model_modalities.as_deref(),
+                    );
                     let overflow = compaction::is_overflow_message(&message.to_lowercase());
                     if overflow && !recovery_used {
                         let outcome = compact(
@@ -873,7 +954,14 @@ fn run_chat(
                         report_compaction(&mut tui, &outcome)?;
                         if matches!(outcome, CompactionOutcome::Compacted { .. }) {
                             recovery_used = true;
-                            update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                            update_status(
+                                &mut tui,
+                                &cursor,
+                                &mut session,
+                                &chat,
+                                tool_tokens,
+                                opts.model_modalities.as_deref(),
+                            );
                             continue;
                         }
                         return Ok(());
@@ -933,7 +1021,14 @@ fn run_chat(
                         .push((attempt_start, chat.session.messages.len()));
                 }
                 chat.save_session()?;
-                update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                update_status(
+                    &mut tui,
+                    &cursor,
+                    &mut session,
+                    &chat,
+                    tool_tokens,
+                    opts.model_modalities.as_deref(),
+                );
 
                 if truncated {
                     if recovery_used {
@@ -959,7 +1054,14 @@ fn run_chat(
                     report_compaction(&mut tui, &outcome)?;
                     if matches!(outcome, CompactionOutcome::Compacted { .. }) {
                         recovery_used = true;
-                        update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+                        update_status(
+                            &mut tui,
+                            &cursor,
+                            &mut session,
+                            &chat,
+                            tool_tokens,
+                            opts.model_modalities.as_deref(),
+                        );
                         continue;
                     }
                     chat.save_session()?;
@@ -973,7 +1075,14 @@ fn run_chat(
 
             Ok(())
         })();
-        update_status(&mut tui, &cursor, &mut session, &chat, tool_tokens);
+        update_status(
+            &mut tui,
+            &cursor,
+            &mut session,
+            &chat,
+            tool_tokens,
+            opts.model_modalities.as_deref(),
+        );
         if let Err(error) = generation {
             if error
                 .downcast_ref::<std::io::Error>()
@@ -997,12 +1106,58 @@ fn run_chat(
     Ok(())
 }
 
-struct ModelLimits {
-    context: u64,
-    output: Option<u64>,
+#[derive(Debug, Deserialize)]
+struct ModelInfo {
+    id: String,
+    architecture: ModelArchitecture,
+    #[serde(flatten)]
+    limits: ModelLimits,
 }
 
-fn get_model_limits(url: &str, model: &OpenRouterModel) -> anyhow::Result<ModelLimits> {
+#[derive(Debug, Deserialize)]
+struct ModelArchitecture {
+    input_modalities: Vec<String>,
+    output_modalities: Vec<String>,
+}
+
+impl ModelArchitecture {
+    fn to_status(&self) -> String {
+        let mut first_part = Vec::new();
+        let mut second_part = Vec::new();
+        for value in self.input_modalities.iter() {
+            match value.as_str() {
+                "text" => first_part.push("T"),
+                "image" => first_part.push("I"),
+                _ => {}
+            }
+        }
+
+        for value in self.output_modalities.iter() {
+            match value.as_str() {
+                "text" => second_part.push("T"),
+                "image" => second_part.push("I"),
+                _ => {}
+            }
+        }
+
+        format!("{} -> {}", first_part.join(""), second_part.join(""))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelLimits {
+    context_length: u64,
+    #[serde(alias = "top_provider")]
+    output: ModelTopProvider,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelTopProvider {
+    #[serde(alias = "max_output_tokens")]
+    max_completion_tokens: Option<u64>,
+}
+
+fn get_model_info(url: &str, model: &OpenRouterModel) -> anyhow::Result<ModelInfo> {
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
         .build()?;
@@ -1036,20 +1191,13 @@ fn get_model_limits(url: &str, model: &OpenRouterModel) -> anyhow::Result<ModelL
         anyhow::bail!("no models returned by the API");
     }
 
-    for model in models {
-        if model.get("id").unwrap() != model_str {
+    for model_value in models.into_iter() {
+        let model: ModelInfo = serde_json::from_value(model_value.clone())?;
+        if model.id != model_str {
             continue;
         }
 
-        let context = model["context_length"]
-            .as_u64()
-            .ok_or_else(|| anyhow::anyhow!("model has no context_length"))?;
-        let output = model["top_provider"]["max_completion_tokens"]
-            .as_u64()
-            .filter(|&value| value > 0)
-            .or_else(|| model["top_provider"]["max_output_tokens"].as_u64())
-            .filter(|&value| value > 0);
-        return Ok(ModelLimits { context, output });
+        return Ok(model);
     }
 
     anyhow::bail!("failed to find model");
@@ -1183,19 +1331,22 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             }
 
             let models_url = format!("{base_url}/models");
-            let limits = get_model_limits(&models_url, &model)?;
+            let model_info = get_model_info(&models_url, &model)?;
 
-            let opts = ChatOptions::default()
-                .with_resume(resume)
-                .with_disable_default_system_prompt(disable_default_system_prompt)
-                .with_ignore_root_agents_md(ignore_root_agents_md)
-                .with_oneshot(oneshot);
+            let opts = ChatOptions {
+                model_modalities: Some(model_info.architecture.to_status()),
+                ..ChatOptions::default()
+            }
+            .with_resume(resume)
+            .with_disable_default_system_prompt(disable_default_system_prompt)
+            .with_ignore_root_agents_md(ignore_root_agents_md)
+            .with_oneshot(oneshot);
 
             run_chat(
                 model,
                 reasoning,
-                Some(limits.context),
-                limits.output,
+                Some(model_info.limits.context_length),
+                model_info.limits.output.max_completion_tokens,
                 config.compaction,
                 Some(&credits_url),
                 &chat_completions_url,
