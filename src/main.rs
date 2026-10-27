@@ -1191,7 +1191,7 @@ fn get_model_info(url: &str, model: &OpenRouterModel) -> anyhow::Result<ModelInf
         anyhow::bail!("no models returned by the API");
     }
 
-    for model_value in models.into_iter() {
+    for model_value in models.iter() {
         let model: ModelInfo = serde_json::from_value(model_value.clone())?;
         if model.id != model_str {
             continue;
