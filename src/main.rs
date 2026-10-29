@@ -144,7 +144,7 @@ struct ChatOptions {
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
     oneshot: Option<String>,
-    model_modalities: Option<String>,
+    models_url: Option<String>,
 }
 
 impl ChatOptions {
@@ -189,9 +189,12 @@ fn update_status(
     session.active_context_tokens =
         session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
     tui.status = format!(
-        "{} | MODEL: {}{} | REASONING: {}",
+        "{} | MODEL: {}{}{} | REASONING: {}",
         cursor.to_string(session).trim_end_matches("\n> "),
         chat.model(),
+        chat.providers()["order"][0]
+            .as_str()
+            .map_or_else(String::new, |provider| format!(" [{provider}]")),
         model_modalities.map_or_else(String::new, |modalities| format!(" ({modalities})")),
         chat.reasoning(),
     );
@@ -459,10 +462,10 @@ fn auto_compact(
 
 #[allow(clippy::too_many_arguments)]
 fn run_chat(
-    mut model: OpenRouterModel,
+    model: OpenRouterModel,
     reasoning_effort: OpenRouterReasoning,
-    max_context: Option<u64>,
-    output_limit: Option<u64>,
+    mut max_context: Option<u64>,
+    mut output_limit: Option<u64>,
     compaction_config: Option<CompactionConfig>,
     credits_gateway: Option<&str>,
     chat_gateway: &str,
@@ -484,7 +487,7 @@ fn run_chat(
     };
 
     let mut settings = compaction::Settings::resolve(compaction_config.as_ref(), model.model())?;
-    let cursor = Cursor::new(max_context);
+    let mut cursor = Cursor::new(max_context);
 
     let skills = parse_skills()?;
     let system_prompt = build_system_prompt(
@@ -510,7 +513,21 @@ fn run_chat(
             .to_owned(),
     )?;
 
+    let client = reqwest::blocking::ClientBuilder::default()
+        .timeout(Duration::from_secs(600))
+        .build()?;
+
     tui.write(NEW_SESSION_BANNER)?;
+    let mut providers = model.provider();
+    let mut model_modalities = None;
+    if let Some(url) = &opts.models_url {
+        let (info, selected_providers) = get_model_info(&client, url, &model, &mut tui)?;
+        providers = selected_providers;
+        max_context = Some(info.limits.context_length);
+        output_limit = info.limits.output.max_completion_tokens;
+        cursor = Cursor::new(max_context);
+        model_modalities = Some(info.architecture.to_status());
+    }
     if max_context.is_none() && settings.enabled {
         tui.write("Context capacity is unknown; automatic threshold compaction is disabled. Set local.context_window to enable it.\n")?;
     }
@@ -519,7 +536,7 @@ fn run_chat(
 
     let mut chat = chat::Chat::new(
         model.model(),
-        model.provider(),
+        providers,
         model.service_tier(),
         reasoning_effort,
         tool_registry.defs.clone(),
@@ -534,12 +551,8 @@ fn run_chat(
         &mut session,
         &chat,
         tool_tokens,
-        opts.model_modalities.as_deref(),
+        model_modalities.as_deref(),
     );
-
-    let client = reqwest::blocking::ClientBuilder::default()
-        .timeout(Duration::from_secs(600))
-        .build()?;
 
     loop {
         let mut user_prompt = if let Some(ref prompt) = oneshot {
@@ -560,7 +573,7 @@ fn run_chat(
             &mut session,
             &chat,
             tool_tokens,
-            opts.model_modalities.as_deref(),
+            model_modalities.as_deref(),
         );
         let prompt = user_prompt.trim();
         let (word, arg) = prompt
@@ -570,23 +583,41 @@ fn run_chat(
         if matches!(word, "/model" | "/m") {
             match arg.parse::<OpenRouterModel>() {
                 Ok(new_model) => {
-                    match compaction::Settings::resolve(
-                        compaction_config.as_ref(),
-                        new_model.model(),
-                    ) {
-                        Ok(new_settings) => {
-                            model = new_model;
-                            chat.set_model(&model);
-                            settings = new_settings;
+                    let result = (|| -> anyhow::Result<()> {
+                        let new_settings = compaction::Settings::resolve(
+                            compaction_config.as_ref(),
+                            new_model.model(),
+                        )?;
+                        let providers = if let Some(url) = &opts.models_url {
+                            let (info, providers) =
+                                get_model_info(&client, url, &new_model, &mut tui)?;
+                            max_context = Some(info.limits.context_length);
+                            output_limit = info.limits.output.max_completion_tokens;
+                            cursor = Cursor::new(max_context);
+                            model_modalities = Some(info.architecture.to_status());
+                            providers
+                        } else {
+                            new_model.provider()
+                        };
+                        chat.set_model(&new_model, providers);
+                        settings = new_settings;
+                        Ok(())
+                    })();
+                    match result {
+                        Ok(()) => {
                             update_status(
                                 &mut tui,
                                 &cursor,
                                 &mut session,
                                 &chat,
                                 tool_tokens,
-                                opts.model_modalities.as_deref(),
+                                model_modalities.as_deref(),
                             );
-                            tui.write(&format!("model: {} ({})\n", model.as_str(), model.model()))?;
+                            tui.write(&format!(
+                                "model: {} ({})\n",
+                                new_model.as_str(),
+                                new_model.model(),
+                            ))?;
                         }
                         Err(error) => tui.write(&format!("failed to change model: {error}\n"))?,
                     }
@@ -608,7 +639,7 @@ fn run_chat(
                         &mut session,
                         &chat,
                         tool_tokens,
-                        opts.model_modalities.as_deref(),
+                        model_modalities.as_deref(),
                     );
                     tui.write(&format!("reasoning: {}\n", chat.reasoning()))?;
                 }
@@ -635,7 +666,7 @@ fn run_chat(
                 &mut session,
                 &chat,
                 tool_tokens,
-                opts.model_modalities.as_deref(),
+                model_modalities.as_deref(),
             );
             tui.write(NEW_SESSION_BANNER)?;
             if oneshot.is_some() {
@@ -669,7 +700,7 @@ fn run_chat(
                 &mut session,
                 &chat,
                 tool_tokens,
-                opts.model_modalities.as_deref(),
+                model_modalities.as_deref(),
             );
             if oneshot.is_some() {
                 break;
@@ -704,7 +735,7 @@ fn run_chat(
                     &mut session,
                     &chat,
                     tool_tokens,
-                    opts.model_modalities.as_deref(),
+                    model_modalities.as_deref(),
                 );
                 tui.accepting_input = false;
                 tui.activity = Some("Thinking");
@@ -763,7 +794,7 @@ fn run_chat(
                                 &mut session,
                                 &chat,
                                 tool_tokens,
-                                opts.model_modalities.as_deref(),
+                                model_modalities.as_deref(),
                             );
                             continue;
                         }
@@ -825,7 +856,7 @@ fn run_chat(
                                     &mut session,
                                     &chat,
                                     tool_tokens,
-                                    opts.model_modalities.as_deref(),
+                                    model_modalities.as_deref(),
                                 );
                                 let Some(choice) = v.choices.first() else {
                                     tui.draw()?;
@@ -891,7 +922,7 @@ fn run_chat(
                     &mut session,
                     &chat,
                     tool_tokens,
-                    opts.model_modalities.as_deref(),
+                    model_modalities.as_deref(),
                 );
                 tui.finish()?;
 
@@ -933,7 +964,7 @@ fn run_chat(
                         &mut session,
                         &chat,
                         tool_tokens,
-                        opts.model_modalities.as_deref(),
+                        model_modalities.as_deref(),
                     );
                     let overflow = compaction::is_overflow_message(&message.to_lowercase());
                     if overflow && !recovery_used {
@@ -960,7 +991,7 @@ fn run_chat(
                                 &mut session,
                                 &chat,
                                 tool_tokens,
-                                opts.model_modalities.as_deref(),
+                                model_modalities.as_deref(),
                             );
                             continue;
                         }
@@ -1027,7 +1058,7 @@ fn run_chat(
                     &mut session,
                     &chat,
                     tool_tokens,
-                    opts.model_modalities.as_deref(),
+                    model_modalities.as_deref(),
                 );
 
                 if truncated {
@@ -1060,7 +1091,7 @@ fn run_chat(
                             &mut session,
                             &chat,
                             tool_tokens,
-                            opts.model_modalities.as_deref(),
+                            model_modalities.as_deref(),
                         );
                         continue;
                     }
@@ -1081,7 +1112,7 @@ fn run_chat(
             &mut session,
             &chat,
             tool_tokens,
-            opts.model_modalities.as_deref(),
+            model_modalities.as_deref(),
         );
         if let Err(error) = generation {
             if error
@@ -1157,50 +1188,48 @@ struct ModelTopProvider {
     max_completion_tokens: Option<u64>,
 }
 
-fn get_model_info(url: &str, model: &OpenRouterModel) -> anyhow::Result<ModelInfo> {
-    let client = reqwest::blocking::ClientBuilder::default()
-        .timeout(Duration::from_secs(600))
-        .build()?;
+fn get_model_info(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    model: &OpenRouterModel,
+    tui: &mut Tui,
+) -> anyhow::Result<(ModelInfo, serde_json::Value)> {
+    let model_id = model.model();
+    for &provider in model.provider_order() {
+        let url = Url::parse_with_params(url, &[("q", model_id), ("providers", provider)])?;
+        let info = tui.run(|| -> anyhow::Result<Option<ModelInfo>> {
+            let response = client.get(url).send()?;
+            let status = response.status();
+            let body_text = response.text()?;
+            if !status.is_success() {
+                anyhow::bail!("API {status} error: {body_text}");
+            }
 
-    let model_str = model.model();
-    let provider = model.provider();
-    let provider = provider
-        .get("order")
-        .unwrap()
-        .get(0)
-        .unwrap()
-        .as_str()
-        .unwrap();
+            let body: serde_json::Value = serde_json::from_str(&body_text)
+                .map_err(|e| anyhow::anyhow!("invalid JSON: {e} — body: {body_text}"))?;
+            let models = body["data"]
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
+            for model_value in models {
+                let info: ModelInfo = serde_json::from_value(model_value.clone())?;
+                if info.id == model_id {
+                    return Ok(Some(info));
+                }
+            }
+            Ok(None)
+        })??;
 
-    let url = Url::parse_with_params(url, &[("q", model_str), ("providers", provider)])?;
-    let response = client.get(url).send()?;
-    let status = response.status();
-    let body_text = response.text()?;
-
-    if !status.is_success() {
-        anyhow::bail!("API {} error: {}", status, body_text);
-    }
-
-    let body: serde_json::Value = serde_json::from_str(&body_text)
-        .map_err(|e| anyhow::anyhow!("invalid JSON: {} — body: {}", e, body_text))?;
-    let models = body["data"]
-        .as_array()
-        .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
-
-    if models.is_empty() {
-        anyhow::bail!("no models returned by the API");
-    }
-
-    for model_value in models.iter() {
-        let model: ModelInfo = serde_json::from_value(model_value.clone())?;
-        if model.id != model_str {
-            continue;
+        if let Some(info) = info {
+            let mut providers = model.provider();
+            providers["order"] = serde_json::json!([provider]);
+            return Ok((info, providers));
         }
-
-        return Ok(model);
+        tui.write(&format!(
+            "Provider '{provider}' is currently unavailable.\n"
+        ))?;
     }
 
-    anyhow::bail!("failed to find model");
+    anyhow::bail!("no available provider for model '{model_id}'");
 }
 
 fn reset_terminal() {
@@ -1330,11 +1359,8 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 return Ok(());
             }
 
-            let models_url = format!("{base_url}/models");
-            let model_info = get_model_info(&models_url, &model)?;
-
             let opts = ChatOptions {
-                model_modalities: Some(model_info.architecture.to_status()),
+                models_url: Some(format!("{base_url}/models")),
                 ..ChatOptions::default()
             }
             .with_resume(resume)
@@ -1345,8 +1371,8 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             run_chat(
                 model,
                 reasoning,
-                Some(model_info.limits.context_length),
-                model_info.limits.output.max_completion_tokens,
+                None,
+                None,
                 config.compaction,
                 Some(&credits_url),
                 &chat_completions_url,

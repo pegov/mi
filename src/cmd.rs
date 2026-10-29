@@ -154,47 +154,22 @@ impl OpenRouterModel {
         }
     }
 
-    pub fn provider(&self) -> serde_json::Value {
-        match *self {
-            Self::None => serde_json::json!(
-                {
-                    "order": [],
-                    "allow_fallbacks": false
-                }
-            ),
-            Self::DeepSeek => serde_json::json!(
-                {
-                    "order": ["deepseek"],
-                    "allow_fallbacks": false
-                }
-            ),
-            Self::GlmFlash => serde_json::json!(
-            {
-                "order": ["z-ai/fp8"],
-                "allow_fallbacks": false
-            }
-            ),
-            Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => {
-                serde_json::json!(
-                {
-                    "order": ["openai/flex"],
-                    "allow_fallbacks": false
-                }
-                )
-            }
-            Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => serde_json::json!(
-            {
-                "order": ["openai"],
-                "allow_fallbacks": false
-            }
-            ),
-            Self::Kimi => serde_json::json!(
-            {
-                "order": ["moonshotai/mxfp4"],
-                "allow_fallbacks": false
-            }
-            ),
+    pub fn provider_order(&self) -> &'static [&'static str] {
+        match self {
+            Self::None => &[],
+            Self::DeepSeek => &["deepseek", "cloudflare"],
+            Self::GlmFlash => &["z-ai/fp8"],
+            Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => &["openai/flex"],
+            Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => &["openai"],
+            Self::Kimi => &["moonshotai/mxfp4"],
         }
+    }
+
+    pub fn provider(&self) -> serde_json::Value {
+        serde_json::json!({
+            "order": self.provider_order(),
+            "allow_fallbacks": false,
+        })
     }
 
     pub fn service_tier(&self) -> Option<&'static str> {

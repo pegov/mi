@@ -53,9 +53,9 @@ impl Chat {
         &self.model
     }
 
-    pub fn set_model(&mut self, model: &crate::cmd::OpenRouterModel) {
+    pub fn set_model(&mut self, model: &crate::cmd::OpenRouterModel, providers: serde_json::Value) {
         self.model = model.model().into();
-        self.providers = model.provider();
+        self.providers = providers;
         self.service_tier = model.service_tier();
     }
 
