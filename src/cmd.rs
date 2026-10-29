@@ -157,7 +157,7 @@ impl OpenRouterModel {
     pub fn provider_order(&self) -> &'static [&'static str] {
         match self {
             Self::None => &[],
-            Self::DeepSeek => &["deepseek", "cloudflare"],
+            Self::DeepSeek => &["deepseek"],
             Self::GlmFlash => &["z-ai/fp8"],
             Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => &["openai/flex"],
             Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => &["openai"],

@@ -1188,6 +1188,21 @@ struct ModelTopProvider {
     max_completion_tokens: Option<u64>,
 }
 
+#[derive(Deserialize)]
+struct EndpointsResponse {
+    data: ModelEndpoints,
+}
+
+#[derive(Deserialize)]
+struct ModelEndpoints {
+    endpoints: Vec<Endpoint>,
+}
+
+#[derive(Deserialize)]
+struct Endpoint {
+    tag: Option<String>,
+}
+
 fn get_model_info(
     client: &reqwest::blocking::Client,
     url: &str,
@@ -1195,31 +1210,52 @@ fn get_model_info(
     tui: &mut Tui,
 ) -> anyhow::Result<(ModelInfo, serde_json::Value)> {
     let model_id = model.model();
+    let (info, endpoints) = tui.run(|| -> anyhow::Result<(ModelInfo, Vec<Endpoint>)> {
+        let query_url = Url::parse_with_params(url, &[("q", model_id)])?;
+        let response = client.get(query_url).send()?;
+        let status = response.status();
+        let body_text = response.text()?;
+        if !status.is_success() {
+            anyhow::bail!("API {status} error: {body_text}");
+        }
+        let body: serde_json::Value = serde_json::from_str(&body_text)
+            .map_err(|e| anyhow::anyhow!("invalid JSON: {e} — body: {body_text}"))?;
+        let models = body["data"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
+        let model_value = models
+            .iter()
+            .find(|value| value["id"] == model_id)
+            .ok_or_else(|| anyhow::anyhow!("model '{model_id}' not found"))?;
+        let info: ModelInfo = serde_json::from_value(model_value.clone())?;
+
+        let mut endpoints_url = Url::parse(url)?;
+        {
+            let mut segments = endpoints_url
+                .path_segments_mut()
+                .map_err(|_| anyhow::anyhow!("invalid models URL"))?;
+            segments.pop_if_empty();
+            for part in info.id.split('/') {
+                segments.push(part);
+            }
+            segments.push("endpoints");
+        }
+        let response = client.get(endpoints_url).send()?;
+        let status = response.status();
+        let body_text = response.text()?;
+        if !status.is_success() {
+            anyhow::bail!("API {status} error: {body_text}");
+        }
+        let body: EndpointsResponse = serde_json::from_str(&body_text)
+            .map_err(|e| anyhow::anyhow!("invalid endpoints response: {e} — body: {body_text}"))?;
+        Ok((info, body.data.endpoints))
+    })??;
+
     for &provider in model.provider_order() {
-        let url = Url::parse_with_params(url, &[("q", model_id), ("providers", provider)])?;
-        let info = tui.run(|| -> anyhow::Result<Option<ModelInfo>> {
-            let response = client.get(url).send()?;
-            let status = response.status();
-            let body_text = response.text()?;
-            if !status.is_success() {
-                anyhow::bail!("API {status} error: {body_text}");
-            }
-
-            let body: serde_json::Value = serde_json::from_str(&body_text)
-                .map_err(|e| anyhow::anyhow!("invalid JSON: {e} — body: {body_text}"))?;
-            let models = body["data"]
-                .as_array()
-                .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
-            for model_value in models {
-                let info: ModelInfo = serde_json::from_value(model_value.clone())?;
-                if info.id == model_id {
-                    return Ok(Some(info));
-                }
-            }
-            Ok(None)
-        })??;
-
-        if let Some(info) = info {
+        if endpoints
+            .iter()
+            .any(|endpoint| endpoint.tag.as_deref() == Some(provider))
+        {
             let mut providers = model.provider();
             providers["order"] = serde_json::json!([provider]);
             return Ok((info, providers));
