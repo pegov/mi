@@ -79,7 +79,7 @@ pub fn handle_events(
                             (tui.command_selection + count - 1) % count
                         };
                     }
-                    (KeyCode::Tab | KeyCode::Enter, _) if !tui.command_matches().is_empty() => {
+                    (KeyCode::Tab, _) if !tui.command_matches().is_empty() => {
                         if let Some((name, _)) = tui.command_matches().get(tui.command_selection) {
                             *user_prompt = format!("{name} ");
                         }
