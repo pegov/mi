@@ -136,11 +136,15 @@ impl Tui {
         let input = wrap_lines(&text, size.width, style);
         let dynamic = wrap_lines(&self.buffer, size.width, self.style);
         let matches = self.command_matches();
-        let menu_height = matches.len().min(6).min(
-            usize::from(size.height)
-                .checked_sub(input.len() + 2)
-                .unwrap_or(0),
-        );
+        let menu_height = if self.accepting_input {
+            self.commands.len().min(6).min(
+                usize::from(size.height)
+                    .checked_sub(input.len() + 2)
+                    .unwrap_or(0),
+            )
+        } else {
+            0
+        };
         let start = (self.command_selection + 1)
             .checked_sub(menu_height)
             .unwrap_or(0);
@@ -151,11 +155,6 @@ impl Tui {
             .take(menu_height)
             .map(|(index, (name, description))| {
                 let selected = index == self.command_selection;
-                let mut description = description.split_whitespace().collect::<Vec<_>>().join(" ");
-                if let Some((end, _)) = description.char_indices().nth(100) {
-                    description.truncate(end);
-                    description.push_str("...");
-                }
                 Line::styled(
                     format!(
                         "{} {name}  {}",
@@ -171,7 +170,7 @@ impl Tui {
             })
             .collect();
         let height =
-            (dynamic.len() + input.len() + menu.len() + 1).min(usize::from(size.height)) as u16;
+            (dynamic.len() + input.len() + menu_height + 1).min(usize::from(size.height)) as u16;
         let area = self.terminal.get_frame().area();
         if area.height != height {
             self.terminal.clear()?;
@@ -187,7 +186,7 @@ impl Tui {
             let [content, prompt, dropdown, status] = Layout::vertical([
                 Constraint::Min(1),
                 Constraint::Length(input.len().min(usize::from(u16::MAX)) as u16),
-                Constraint::Length(menu.len() as u16),
+                Constraint::Length(menu_height as u16),
                 Constraint::Length(1),
             ])
             .areas(frame.area());
