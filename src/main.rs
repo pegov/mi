@@ -78,8 +78,10 @@ fn apply_skill(skills: &[Skill], user_prompt: &mut String, tui: &mut Tui) -> any
     Ok(())
 }
 
-const NEW_SESSION_BANNER: &str =
-    "\n+---------------------+\n| NEW SESSION STARTED |\n+---------------------+\n\n";
+fn draw_banner(text: &str) -> String {
+    let border = format!("+{}+\n", "-".repeat(text.len() + 2));
+    format!("\n{border}| {text} |\n{border}\n")
+}
 
 const SYSTEM_PROMPT: &str = "You are an expert coding assistant operating inside mi, \
                             a simple and minimal coding agent harness.";
@@ -530,7 +532,7 @@ fn run_chat(
         .timeout(Duration::from_secs(600))
         .build()?;
 
-    tui.write(NEW_SESSION_BANNER)?;
+    tui.write(&draw_banner("NEW SESSION STARTED"))?;
     let mut providers = model.provider();
     let mut model_modalities = None;
     if let Some(url) = &opts.models_url {
@@ -681,7 +683,7 @@ fn run_chat(
                 tool_tokens,
                 model_modalities.as_deref(),
             );
-            tui.write(NEW_SESSION_BANNER)?;
+            tui.write(&draw_banner("NEW SESSION STARTED"))?;
             if oneshot.is_some() {
                 break;
             }
