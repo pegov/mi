@@ -25,6 +25,9 @@ pub struct Tui {
     pub status: String,
     pub accepting_input: bool,
     pub activity: Option<&'static str>,
+    pub commands: Vec<(String, String)>,
+    pub command_selection: usize,
+    pub commands_dismissed: bool,
     started: Instant,
     buffer: String,
     mode: Mode,
@@ -72,6 +75,17 @@ impl Tui {
             status,
             accepting_input: false,
             activity: None,
+            commands: [
+                ("/model", "Change model (/m)"),
+                ("/reasoning", "Change reasoning level (/r)"),
+                ("/new", "Start a new session"),
+                ("/compact", "Compact conversation context"),
+            ]
+            .into_iter()
+            .map(|(name, description)| (name.to_owned(), description.to_owned()))
+            .collect(),
+            command_selection: 0,
+            commands_dismissed: false,
             started: Instant::now(),
             buffer: String::new(),
             mode: Mode::None,
@@ -82,6 +96,20 @@ impl Tui {
         ))?;
         io::stdout().execute(event::EnableBracketedPaste)?;
         Ok(tui)
+    }
+
+    pub fn command_matches(&self) -> Vec<&(String, String)> {
+        if !self.accepting_input
+            || self.commands_dismissed
+            || !self.prompt.starts_with('/')
+            || self.prompt.contains(char::is_whitespace)
+        {
+            return Vec::new();
+        }
+        self.commands
+            .iter()
+            .filter(|(name, _)| name.starts_with(&self.prompt))
+            .collect()
     }
 
     pub fn draw(&mut self) -> anyhow::Result<()> {
@@ -107,7 +135,43 @@ impl Tui {
         };
         let input = wrap_lines(&text, size.width, style);
         let dynamic = wrap_lines(&self.buffer, size.width, self.style);
-        let height = (dynamic.len() + input.len() + 1).min(usize::from(size.height)) as u16;
+        let matches = self.command_matches();
+        let menu_height = matches.len().min(6).min(
+            usize::from(size.height)
+                .checked_sub(input.len() + 2)
+                .unwrap_or(0),
+        );
+        let start = (self.command_selection + 1)
+            .checked_sub(menu_height)
+            .unwrap_or(0);
+        let menu: Vec<Line<'static>> = matches
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(menu_height)
+            .map(|(index, (name, description))| {
+                let selected = index == self.command_selection;
+                let mut description = description.split_whitespace().collect::<Vec<_>>().join(" ");
+                if let Some((end, _)) = description.char_indices().nth(100) {
+                    description.truncate(end);
+                    description.push_str("...");
+                }
+                Line::styled(
+                    format!(
+                        "{} {name}  {}",
+                        if selected { ">" } else { " " },
+                        description
+                    ),
+                    if selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
+                )
+            })
+            .collect();
+        let height =
+            (dynamic.len() + input.len() + menu.len() + 1).min(usize::from(size.height)) as u16;
         let area = self.terminal.get_frame().area();
         if area.height != height {
             self.terminal.clear()?;
@@ -120,9 +184,10 @@ impl Tui {
             )?;
         }
         self.terminal.draw(|frame| {
-            let [content, prompt, status] = Layout::vertical([
+            let [content, prompt, dropdown, status] = Layout::vertical([
                 Constraint::Min(1),
                 Constraint::Length(input.len().min(usize::from(u16::MAX)) as u16),
+                Constraint::Length(menu.len() as u16),
                 Constraint::Length(1),
             ])
             .areas(frame.area());
@@ -138,6 +203,7 @@ impl Tui {
                 frame.set_cursor_position((prompt.x + x as u16, prompt.y + y));
             }
             frame.render_widget(Paragraph::new(input[offset..].to_vec()), prompt);
+            frame.render_widget(Paragraph::new(menu), dropdown);
             frame.render_widget(
                 Paragraph::new(self.status.as_str()).style(Style::default().fg(Color::Green)),
                 status,

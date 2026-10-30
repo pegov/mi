@@ -19,6 +19,8 @@ pub fn handle_events(
     history: &mut Vec<String>,
 ) -> anyhow::Result<HandleEventsAction> {
     tui.accepting_input = true;
+    tui.command_selection = 0;
+    tui.commands_dismissed = false;
     tui.prompt = user_prompt.clone();
     tui.draw()?;
     let mut history_index = history.len();
@@ -27,7 +29,16 @@ pub fn handle_events(
     loop {
         match event::read()? {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                match (key.code, key.modifiers) {
+                let code = match key.code {
+                    KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        KeyCode::Up
+                    }
+                    KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        KeyCode::Down
+                    }
+                    code => code,
+                };
+                match (code, key.modifiers) {
                     (KeyCode::Char('c'), modifiers)
                         if modifiers.contains(KeyModifiers::CONTROL) =>
                     {
@@ -57,8 +68,24 @@ pub fn handle_events(
                     (KeyCode::Enter, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {
                         user_prompt.push('\n');
                     }
+                    (KeyCode::Esc, _) => {
+                        tui.commands_dismissed = true;
+                    }
+                    (KeyCode::Up | KeyCode::Down, _) if !tui.command_matches().is_empty() => {
+                        let count = tui.command_matches().len();
+                        tui.command_selection = if code == KeyCode::Down {
+                            (tui.command_selection + 1) % count
+                        } else {
+                            (tui.command_selection + count - 1) % count
+                        };
+                    }
+                    (KeyCode::Tab | KeyCode::Enter, _) if !tui.command_matches().is_empty() => {
+                        if let Some((name, _)) = tui.command_matches().get(tui.command_selection) {
+                            *user_prompt = format!("{name} ");
+                        }
+                    }
                     (KeyCode::Up | KeyCode::Down, _) => {
-                        match key.code {
+                        match code {
                             KeyCode::Up if history_index > 0 => {
                                 if history_index == history.len() {
                                     draft = user_prompt.clone();
@@ -97,6 +124,10 @@ pub fn handle_events(
             }
             Event::Resize(_, _) => {}
             _ => continue,
+        }
+        if tui.prompt != *user_prompt {
+            tui.command_selection = 0;
+            tui.commands_dismissed = false;
         }
         tui.prompt = user_prompt.clone();
         tui.draw()?;

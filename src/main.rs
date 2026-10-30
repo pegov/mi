@@ -513,6 +513,12 @@ fn run_chat(
             .to_owned(),
     )?;
 
+    tui.commands.extend(
+        skills
+            .iter()
+            .map(|skill| (format!("/skill:{}", skill.name), skill.description.clone())),
+    );
+
     let client = reqwest::blocking::ClientBuilder::default()
         .timeout(Duration::from_secs(600))
         .build()?;
