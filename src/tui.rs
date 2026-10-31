@@ -136,18 +136,15 @@ impl Tui {
         let input = wrap_lines(&text, size.width, style);
         let dynamic = wrap_lines(&self.buffer, size.width, self.style);
         let matches = self.command_matches();
+        let available_height = usize::from(size.height);
+        let available_height = available_height - (input.len() + 2).min(available_height);
         let menu_height = if self.accepting_input {
-            self.commands.len().min(6).min(
-                usize::from(size.height)
-                    .checked_sub(input.len() + 2)
-                    .unwrap_or(0),
-            )
+            self.commands.len().min(6).min(available_height)
         } else {
             0
         };
-        let start = (self.command_selection + 1)
-            .checked_sub(menu_height)
-            .unwrap_or(0);
+        let start = self.command_selection + 1;
+        let start = start - menu_height.min(start);
         let menu: Vec<Line<'static>> = matches
             .iter()
             .enumerate()
