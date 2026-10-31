@@ -116,25 +116,6 @@ pub fn format_skills(skills: &[Skill]) -> String {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_skill_str() {
-        let skill_str = "---
-name: name
-description: desc
----
-FULL BODY";
-
-        let skill_yaml = parse_skill_str(skill_str).unwrap();
-        assert_eq!(skill_yaml.yaml.name, "name");
-        assert_eq!(skill_yaml.yaml.description, "desc");
-        assert_eq!(skill_yaml.body, "FULL BODY");
-    }
-}
-
 pub fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option<String> {
     for skill in skills {
         if skill.name != name {
@@ -153,4 +134,23 @@ pub fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_skill_str() {
+        let skill_str = "---
+name: name
+description: desc
+---
+FULL BODY";
+
+        let skill_yaml = parse_skill_str(skill_str).unwrap();
+        assert_eq!(skill_yaml.yaml.name, "name");
+        assert_eq!(skill_yaml.yaml.description, "desc");
+        assert_eq!(skill_yaml.body, "FULL BODY");
+    }
 }
