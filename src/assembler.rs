@@ -61,7 +61,7 @@ impl Assembler {
                     }
                     self.tool_calls.push(a_tool_call);
                 } else {
-                    if tool_call.index + 1 > self.tool_calls.len() {
+                    if tool_call.index >= self.tool_calls.len() {
                         eprintln!(
                             "tool call index out of range: {}, len = {}",
                             tool_call.index,
