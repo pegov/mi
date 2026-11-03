@@ -26,21 +26,27 @@ pub struct Cli {
     pub command: Command,
 }
 
+#[derive(Debug, clap::Args)]
+pub struct ChatArgs {
+    #[arg(long, value_name = "PROMPT")]
+    pub oneshot: Option<String>,
+    #[arg(long)]
+    pub resume: bool,
+    #[arg(short, long)]
+    pub profile: Option<String>,
+    #[arg(long, visible_alias = "spp")]
+    pub system_prompt_preset: Vec<String>,
+    #[arg(long, visible_alias = "ddsp")]
+    pub disable_default_system_prompt: bool,
+    #[arg(long, visible_alias = "iram")]
+    pub ignore_root_agents_md: bool,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Local {
-        #[arg(long, value_name = "PROMPT")]
-        oneshot: Option<String>,
-        #[arg(long)]
-        resume: bool,
-        #[arg(short, long)]
-        profile: Option<String>,
-        #[arg(long, visible_alias = "spp")]
-        system_prompt_preset: Vec<String>,
-        #[arg(long, visible_alias = "ddsp")]
-        disable_default_system_prompt: bool,
-        #[arg(long, visible_alias = "iram")]
-        ignore_root_agents_md: bool,
+        #[command(flatten)]
+        chat: ChatArgs,
     },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
@@ -48,18 +54,8 @@ pub enum Command {
         model: Option<OpenRouterModel>,
         #[arg(short, long, value_enum)]
         reasoning: Option<OpenRouterReasoning>,
-        #[arg(long, value_name = "PROMPT")]
-        oneshot: Option<String>,
-        #[arg(long)]
-        resume: bool,
-        #[arg(short, long)]
-        profile: Option<String>,
-        #[arg(long, visible_alias = "spp")]
-        system_prompt_preset: Vec<String>,
-        #[arg(long, visible_alias = "ddsp")]
-        disable_default_system_prompt: bool,
-        #[arg(long, visible_alias = "iram")]
-        ignore_root_agents_md: bool,
+        #[command(flatten)]
+        chat: ChatArgs,
     },
     #[command(name = "image-gen")]
     ImageGen {

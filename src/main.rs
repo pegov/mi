@@ -140,35 +140,12 @@ fn build_system_prompt(
     Ok(system_prompt)
 }
 
-#[derive(Default)]
 struct ChatOptions {
     resume: bool,
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
     oneshot: Option<String>,
     models_url: Option<String>,
-}
-
-impl ChatOptions {
-    fn with_resume(mut self, resume: bool) -> Self {
-        self.resume = resume;
-        self
-    }
-
-    fn with_disable_default_system_prompt(mut self, value: bool) -> Self {
-        self.disable_default_system_prompt = value;
-        self
-    }
-
-    fn with_ignore_root_agents_md(mut self, value: bool) -> Self {
-        self.ignore_root_agents_md = value;
-        self
-    }
-
-    fn with_oneshot(mut self, oneshot: Option<String>) -> Self {
-        self.oneshot = oneshot;
-        self
-    }
 }
 
 fn compact_instructions(prompt: &str) -> Option<&str> {
@@ -1349,23 +1326,19 @@ fn start(cli: Cli) -> anyhow::Result<()> {
     }
 
     match cli.command {
-        cmd::Command::Local {
-            resume,
-            oneshot,
-            profile,
-            system_prompt_preset,
-            disable_default_system_prompt,
-            ignore_root_agents_md,
-        } => {
-            let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
+        cmd::Command::Local { chat } => {
+            let profile =
+                config.load_profile(chat.profile.as_deref(), chat.system_prompt_preset)?;
             let base_url = config.local.base_url;
             let chat_completions_url = format!("{base_url}/chat/completions");
 
-            let opts = ChatOptions::default()
-                .with_resume(resume)
-                .with_disable_default_system_prompt(disable_default_system_prompt)
-                .with_ignore_root_agents_md(ignore_root_agents_md)
-                .with_oneshot(oneshot);
+            let opts = ChatOptions {
+                resume: chat.resume,
+                disable_default_system_prompt: chat.disable_default_system_prompt,
+                ignore_root_agents_md: chat.ignore_root_agents_md,
+                oneshot: chat.oneshot,
+                models_url: None,
+            };
 
             run_chat(
                 OpenRouterModel::None,
@@ -1382,14 +1355,10 @@ fn start(cli: Cli) -> anyhow::Result<()> {
         cmd::Command::OpenRouter {
             model,
             reasoning,
-            resume,
-            oneshot,
-            profile,
-            system_prompt_preset,
-            disable_default_system_prompt,
-            ignore_root_agents_md,
+            chat,
         } => {
-            let profile = config.load_profile(profile.as_deref(), system_prompt_preset)?;
+            let profile =
+                config.load_profile(chat.profile.as_deref(), chat.system_prompt_preset)?;
             let model = model.or(profile.model).unwrap_or(OpenRouterModel::DeepSeek);
             let reasoning = reasoning
                 .or(profile.reasoning)
@@ -1411,13 +1380,12 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             }
 
             let opts = ChatOptions {
+                resume: chat.resume,
+                disable_default_system_prompt: chat.disable_default_system_prompt,
+                ignore_root_agents_md: chat.ignore_root_agents_md,
+                oneshot: chat.oneshot,
                 models_url: Some(format!("{base_url}/models")),
-                ..ChatOptions::default()
-            }
-            .with_resume(resume)
-            .with_disable_default_system_prompt(disable_default_system_prompt)
-            .with_ignore_root_agents_md(ignore_root_agents_md)
-            .with_oneshot(oneshot);
+            };
 
             run_chat(
                 model,
