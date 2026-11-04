@@ -97,8 +97,7 @@ pub fn parse_skills() -> anyhow::Result<Vec<Skill>> {
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_dir())
         .filter(|e| e.path().join(SKILL_MD).is_file())
-        .map(|e| e.into_path())
-        .map(|dir| Skill::from_dir(&dir))
+        .map(|e| Skill::from_dir(e.path()))
         .collect()
 }
 
