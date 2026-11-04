@@ -117,23 +117,17 @@ pub fn format_skills(skills: &[Skill]) -> String {
 }
 
 pub fn manually_invoke_skill(skills: &[Skill], name: &str, args: &str) -> Option<String> {
-    for skill in skills {
-        if skill.name != name {
-            continue;
-        }
+    let skill = skills.iter().find(|s| s.name == name)?;
 
-        if !args.is_empty() {
-            return Some(format!(
-                "[Manual skill invocation]\nAuto-inserting SKILL.md text:\n{}\nARGUMENTS: {}",
-                skill.full.trim(),
-                args.trim()
-            ));
-        } else {
-            return Some(skill.full.clone());
-        }
+    if args.is_empty() {
+        return Some(skill.full.clone());
     }
 
-    None
+    Some(format!(
+        "[Manual skill invocation]\nAuto-inserting SKILL.md text:\n{}\nARGUMENTS: {}",
+        skill.full.trim(),
+        args.trim()
+    ))
 }
 
 #[cfg(test)]
