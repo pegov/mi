@@ -8,12 +8,16 @@ use super::{
 #[derive(Deserialize, Serialize)]
 struct SearchArgs {
     query: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    count: Option<u32>,
+    #[serde(default = "default_count")]
+    count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     ori_question: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     need_content: Option<bool>,
+}
+
+fn default_count() -> u32 {
+    5
 }
 
 pub struct SearchTool {
@@ -45,7 +49,7 @@ impl Tool for SearchTool {
                                 "type": "integer",
                                 "minimum": 1,
                                 "maximum": 50,
-                                "description": "Number of results (default 10)"
+                                "description": "Number of results (default 5)"
                             },
                             "ori_question": {
                                 "type": "string",
