@@ -28,6 +28,15 @@ pub struct Cli {
 
 #[derive(Debug, clap::Args)]
 pub struct ChatArgs {
+    #[arg(short = 's', long, help = "Enable web search and fetch tools")]
+    pub with_search: bool,
+    #[arg(
+        long,
+        value_enum,
+        default_value = "deepseek",
+        help = "Provider for web search and fetch"
+    )]
+    pub search_provider: SearchProvider,
     #[arg(long, value_name = "PROMPT")]
     pub oneshot: Option<String>,
     #[arg(long)]
@@ -40,6 +49,11 @@ pub struct ChatArgs {
     pub disable_default_system_prompt: bool,
     #[arg(long, visible_alias = "iram")]
     pub ignore_root_agents_md: bool,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum SearchProvider {
+    Deepseek,
 }
 
 #[derive(Debug, Subcommand)]

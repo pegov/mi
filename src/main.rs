@@ -146,6 +146,7 @@ struct ChatOptions {
     ignore_root_agents_md: bool,
     oneshot: Option<String>,
     models_url: Option<String>,
+    search_base_url: Option<String>,
 }
 
 fn compact_instructions(prompt: &str) -> Option<&str> {
@@ -476,6 +477,10 @@ fn run_chat(
         &skills,
     )?;
 
+    let client = reqwest::blocking::ClientBuilder::default()
+        .timeout(Duration::from_secs(600))
+        .build()?;
+
     let mut tool_registry = make_tools![
         tool::Read,
         tool::Tail,
@@ -483,6 +488,16 @@ fn run_chat(
         tool::EditTool,
         tool::BashTool::new(300, 300),
     ];
+    if let Some(base_url) = opts.search_base_url {
+        tool_registry.push(Box::new(tool::SearchTool {
+            base_url: base_url.clone(),
+            client: client.clone(),
+        }));
+        tool_registry.push(Box::new(tool::FetchTool {
+            base_url,
+            client: client.clone(),
+        }));
+    }
     let tool_tokens = compaction::estimate_tools_tokens(&tool_registry.defs);
 
     let mut tui = Tui::new(
@@ -504,10 +519,6 @@ fn run_chat(
         }
         (format!("/skill:{}", skill.name), description)
     }));
-
-    let client = reqwest::blocking::ClientBuilder::default()
-        .timeout(Duration::from_secs(600))
-        .build()?;
 
     tui.write(&draw_banner("NEW SESSION STARTED"))?;
     let mut providers = model.provider();
@@ -1337,6 +1348,21 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
+                search_base_url: if chat.with_search {
+                    Some(
+                        match chat.search_provider {
+                            cmd::SearchProvider::Deepseek => config.deepseek,
+                        }
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--with-search requires deepseek.base_url in config.json"
+                            )
+                        })?
+                        .base_url,
+                    )
+                } else {
+                    None
+                },
                 models_url: None,
             };
 
@@ -1384,6 +1410,21 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
+                search_base_url: if chat.with_search {
+                    Some(
+                        match chat.search_provider {
+                            cmd::SearchProvider::Deepseek => config.deepseek,
+                        }
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--with-search requires deepseek.base_url in config.json"
+                            )
+                        })?
+                        .base_url,
+                    )
+                } else {
+                    None
+                },
                 models_url: Some(format!("{base_url}/models")),
             };
 

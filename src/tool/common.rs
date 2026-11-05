@@ -18,3 +18,33 @@ pub trait Tool {
     fn json(&self) -> serde_json::Value;
     fn call(&mut self, args: &str) -> anyhow::Result<String>;
 }
+
+pub enum WebToolKind {
+    Search,
+    Fetch,
+}
+
+impl WebToolKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Search => "search",
+            Self::Fetch => "fetch",
+        }
+    }
+}
+
+pub fn web_request(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    tool: WebToolKind,
+    args: &impl serde::Serialize,
+) -> anyhow::Result<String> {
+    let url = format!("{}/tools/{}", base_url.trim_end_matches('/'), tool.as_str());
+    let response = client.post(url).json(args).send()?;
+    let status = response.status();
+    let body = response.text()?;
+    if !status.is_success() {
+        anyhow::bail!("API {status} error: {body}");
+    }
+    Ok(body)
+}

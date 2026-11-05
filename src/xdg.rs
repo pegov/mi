@@ -8,7 +8,8 @@ use crate::cmd::{OpenRouterModel, OpenRouterReasoning};
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub local: LocalConfig,
-    pub openrouter: OpenRouterConfig,
+    pub openrouter: ApiConfig,
+    pub deepseek: Option<ApiConfig>,
     pub jev: JevConfig,
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
@@ -86,7 +87,7 @@ pub struct LocalConfig {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct OpenRouterConfig {
+pub struct ApiConfig {
     pub base_url: String,
 }
 
