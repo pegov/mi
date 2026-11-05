@@ -48,7 +48,7 @@ impl Tool for SearchTool {
                             "count": {
                                 "type": "integer",
                                 "minimum": 1,
-                                "maximum": 50,
+                                "maximum": 15,
                                 "description": "Number of results (default 5)"
                             },
                             "ori_question": {
@@ -74,6 +74,7 @@ impl Tool for SearchTool {
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args: SearchArgs = serde_json::from_str(args)?;
+        anyhow::ensure!(args.count <= 15, "count must be <= 15, got {}", args.count);
         web_request(&self.client, &self.base_url, WebToolKind::Search, &args)
     }
 }
