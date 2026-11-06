@@ -8,6 +8,7 @@ use super::Tool;
 struct BashToolArgs {
     command: String,
     cwd: Option<String>,
+    timeout: Option<u64>,
 }
 
 pub struct BashTool {
@@ -46,6 +47,10 @@ impl Tool for BashTool {
                             "cwd": {
                                 "type": "string",
                                 "description": "Working directory to run the command in. Omitted or empty uses the current directory"
+                            },
+                            "timeout": {
+                                "type": "integer",
+                                "description": "Timeout in seconds in range 1..120. Defaults to 60. Command is killed when it exceeds the timeout"
                             }
                         },
                         "required": ["command"]
@@ -57,8 +62,14 @@ impl Tool for BashTool {
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
         let args: BashToolArgs = serde_json::from_str(args)?;
-        let mut cmd = Command::new("bash");
-        cmd.arg("-c").arg(&args.command);
+        let timeout = args.timeout.unwrap_or(60);
+        if !(1..=120).contains(&timeout) {
+            anyhow::bail!("timeout must be in range 1..120, got {timeout}");
+        }
+        let mut cmd = Command::new("timeout");
+        cmd.arg("-s").arg("KILL");
+        cmd.arg(format!("{timeout}s"));
+        cmd.arg("bash").arg("-c").arg(&args.command);
         if let Some(cwd) = args.cwd.filter(|cwd| !cwd.is_empty()) {
             cmd.current_dir(cwd);
         }
