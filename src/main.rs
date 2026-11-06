@@ -6,27 +6,42 @@ use std::{
     time::Duration,
 };
 
-use mi::{
-    assembler::Assembler,
-    chan, chat,
-    cmd::{self, Cli, OpenRouterModel, OpenRouterReasoning},
-    compaction,
-    completions::{Answer, FinishReason},
-    credits,
-    event::{HandleEventsAction, handle_events},
-    image, jev, log,
-    mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
-    printer::{self, Cursor},
-    skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
-    tool::{self, Tool},
-    tui::Tui,
-    xdg::{CompactionConfig, get_root_agents_md, load_system_prompt_preset, parse_config},
-};
-
 use clap::Parser;
 use crossterm::{ExecutableCommand, event::DisableBracketedPaste, terminal::disable_raw_mode};
 use reqwest::Url;
 use serde::Deserialize;
+
+mod assembler;
+mod chan;
+mod chat;
+mod cmd;
+mod compaction;
+mod completions;
+mod copy;
+mod credits;
+mod event;
+mod image;
+mod jev;
+mod log;
+mod mcp;
+mod printer;
+mod skill;
+mod tool;
+mod tui;
+mod xdg;
+
+use crate::{
+    assembler::Assembler,
+    cmd::{Cli, OpenRouterModel, OpenRouterReasoning},
+    completions::{Answer, FinishReason},
+    event::{HandleEventsAction, handle_events},
+    mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
+    printer::Cursor,
+    skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
+    tool::Tool,
+    tui::Tui,
+    xdg::{CompactionConfig, get_root_agents_md, load_system_prompt_preset, parse_config},
+};
 
 #[derive(Default)]
 struct Tools {
@@ -299,7 +314,7 @@ fn compact(
             };
             if let Some(ref reported) = result.usage {
                 session.save_usage(reported);
-                mi::completions::Usage::accumulate(&mut usage, reported);
+                completions::Usage::accumulate(&mut usage, reported);
             }
             previous_summary = Some(match result.text {
                 Ok(text) => text,
@@ -742,7 +757,7 @@ fn run_chat(
                     let body = res.text().unwrap_or_default();
                     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body)
                         && let Ok(usage) =
-                            serde_json::from_value::<mi::completions::Usage>(value["usage"].clone())
+                            serde_json::from_value::<completions::Usage>(value["usage"].clone())
                     {
                         session.save_usage(&usage);
                     }
@@ -801,9 +816,9 @@ fn run_chat(
                         }
 
                         if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Ok(usage) = serde_json::from_value::<mi::completions::Usage>(
-                                value["usage"].clone(),
-                            ) {
+                            if let Ok(usage) =
+                                serde_json::from_value::<completions::Usage>(value["usage"].clone())
+                            {
                                 session.save_usage(&usage);
                                 let estimated = chat.session.estimate_active_tokens() + tool_tokens;
                                 if estimated > 0 && usage.prompt_tokens > 0 {
