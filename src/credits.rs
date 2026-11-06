@@ -99,6 +99,7 @@ impl From<&Credits> for Session {
     }
 }
 
+#[allow(dead_code)]
 pub struct Credits {
     pub balance: f64,
     pub usage: f64,

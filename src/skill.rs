@@ -15,6 +15,7 @@ pub struct Skill {
     pub name: String,
     pub description: String,
     pub disable_model_invocation: bool,
+    #[allow(dead_code)]
     pub body: String,
 }
 

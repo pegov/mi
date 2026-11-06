@@ -103,12 +103,14 @@ pub struct SyncMcpClient {
     progress_rx: Mutex<TokioReceiver<ProgressNotificationParam>>,
 }
 
+#[allow(dead_code)]
 pub enum Endpoint<'a> {
     Stdio(&'a str),
     Http(&'a str),
 }
 
 impl SyncMcpClient {
+    #[allow(dead_code)]
     pub fn connect_any(ep: Endpoint) -> anyhow::Result<Self> {
         match ep {
             Endpoint::Stdio(p) => Self::connect(p),
@@ -195,6 +197,7 @@ impl SyncMcpClient {
         self.progress_rx.lock().ok()?.try_recv().ok()
     }
 
+    #[allow(dead_code)]
     pub fn recv_progress(&self) -> Option<ProgressNotificationParam> {
         self.progress_rx.lock().ok()?.blocking_recv()
     }
