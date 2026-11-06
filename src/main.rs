@@ -557,14 +557,20 @@ fn run_chat(
     if resume {
         chat.resume()?;
     }
-    update_status(
-        &mut tui,
-        &cursor,
-        &mut session,
-        &chat,
-        tool_tokens,
-        model_modalities.as_deref(),
-    );
+    macro_rules! status {
+        () => {
+            update_status(
+                &mut tui,
+                &cursor,
+                &mut session,
+                &chat,
+                tool_tokens,
+                model_modalities.as_deref(),
+            )
+        };
+    }
+
+    status!();
 
     loop {
         let mut user_prompt = if let Some(ref prompt) = oneshot {
@@ -579,14 +585,7 @@ fn run_chat(
             prompt
         };
 
-        update_status(
-            &mut tui,
-            &cursor,
-            &mut session,
-            &chat,
-            tool_tokens,
-            model_modalities.as_deref(),
-        );
+        status!();
         let prompt = user_prompt.trim();
         let (word, arg) = prompt
             .split_once(char::is_whitespace)
@@ -617,14 +616,7 @@ fn run_chat(
                     })();
                     match result {
                         Ok(()) => {
-                            update_status(
-                                &mut tui,
-                                &cursor,
-                                &mut session,
-                                &chat,
-                                tool_tokens,
-                                model_modalities.as_deref(),
-                            );
+                            status!();
                             tui.write(&format!(
                                 "model: {} ({})\n",
                                 new_model.as_str(),
@@ -645,14 +637,7 @@ fn run_chat(
             match arg.parse::<OpenRouterReasoning>() {
                 Ok(reasoning) => {
                     chat.set_reasoning(reasoning);
-                    update_status(
-                        &mut tui,
-                        &cursor,
-                        &mut session,
-                        &chat,
-                        tool_tokens,
-                        model_modalities.as_deref(),
-                    );
+                    status!();
                     tui.write(&format!("reasoning: {}\n", chat.reasoning()))?;
                 }
                 Err(_) => tui.write(&format!("unknown reasoning level: {arg}\n"))?,
@@ -672,14 +657,7 @@ fn run_chat(
                 pending_summaries: std::mem::take(&mut session.pending_summaries),
                 ..Default::default()
             };
-            update_status(
-                &mut tui,
-                &cursor,
-                &mut session,
-                &chat,
-                tool_tokens,
-                model_modalities.as_deref(),
-            );
+            status!();
             tui.write(&draw_banner("NEW SESSION STARTED"))?;
             if oneshot.is_some() {
                 break;
@@ -706,14 +684,7 @@ fn run_chat(
                 credits_gateway,
             )?;
             report_compaction(&mut tui, &outcome)?;
-            update_status(
-                &mut tui,
-                &cursor,
-                &mut session,
-                &chat,
-                tool_tokens,
-                model_modalities.as_deref(),
-            );
+            status!();
             if oneshot.is_some() {
                 break;
             }
@@ -741,14 +712,7 @@ fn run_chat(
                 )? {
                     break;
                 }
-                update_status(
-                    &mut tui,
-                    &cursor,
-                    &mut session,
-                    &chat,
-                    tool_tokens,
-                    model_modalities.as_deref(),
-                );
+                status!();
                 tui.accepting_input = false;
                 tui.activity = Some("Thinking");
                 tui.draw()?;
@@ -800,14 +764,7 @@ fn run_chat(
                         report_compaction(&mut tui, &outcome)?;
                         if matches!(outcome, CompactionOutcome::Compacted { .. }) {
                             recovery_used = true;
-                            update_status(
-                                &mut tui,
-                                &cursor,
-                                &mut session,
-                                &chat,
-                                tool_tokens,
-                                model_modalities.as_deref(),
-                            );
+                            status!();
                             continue;
                         }
                         return Ok(());
@@ -862,14 +819,7 @@ fn run_chat(
 
                         match serde_json::from_str::<Answer>(data) {
                             Ok(v) => {
-                                update_status(
-                                    &mut tui,
-                                    &cursor,
-                                    &mut session,
-                                    &chat,
-                                    tool_tokens,
-                                    model_modalities.as_deref(),
-                                );
+                                status!();
                                 let Some(choice) = v.choices.first() else {
                                     tui.draw()?;
                                     continue;
@@ -928,14 +878,7 @@ fn run_chat(
                     session.update(&credits);
                 }
 
-                update_status(
-                    &mut tui,
-                    &cursor,
-                    &mut session,
-                    &chat,
-                    tool_tokens,
-                    model_modalities.as_deref(),
-                );
+                status!();
                 tui.finish()?;
 
                 if let Some(message) = stream_error {
@@ -970,14 +913,7 @@ fn run_chat(
                             .push((start, chat.session.messages.len()));
                         chat.save_session()?;
                     }
-                    update_status(
-                        &mut tui,
-                        &cursor,
-                        &mut session,
-                        &chat,
-                        tool_tokens,
-                        model_modalities.as_deref(),
-                    );
+                    status!();
                     let overflow = compaction::is_overflow_message(&message.to_lowercase());
                     if overflow && !recovery_used {
                         let outcome = compact(
@@ -997,14 +933,7 @@ fn run_chat(
                         report_compaction(&mut tui, &outcome)?;
                         if matches!(outcome, CompactionOutcome::Compacted { .. }) {
                             recovery_used = true;
-                            update_status(
-                                &mut tui,
-                                &cursor,
-                                &mut session,
-                                &chat,
-                                tool_tokens,
-                                model_modalities.as_deref(),
-                            );
+                            status!();
                             continue;
                         }
                         return Ok(());
@@ -1064,14 +993,7 @@ fn run_chat(
                         .push((attempt_start, chat.session.messages.len()));
                 }
                 chat.save_session()?;
-                update_status(
-                    &mut tui,
-                    &cursor,
-                    &mut session,
-                    &chat,
-                    tool_tokens,
-                    model_modalities.as_deref(),
-                );
+                status!();
 
                 if truncated {
                     if recovery_used {
@@ -1097,14 +1019,7 @@ fn run_chat(
                     report_compaction(&mut tui, &outcome)?;
                     if matches!(outcome, CompactionOutcome::Compacted { .. }) {
                         recovery_used = true;
-                        update_status(
-                            &mut tui,
-                            &cursor,
-                            &mut session,
-                            &chat,
-                            tool_tokens,
-                            model_modalities.as_deref(),
-                        );
+                        status!();
                         continue;
                     }
                     chat.save_session()?;
@@ -1118,14 +1033,7 @@ fn run_chat(
 
             Ok(())
         })();
-        update_status(
-            &mut tui,
-            &cursor,
-            &mut session,
-            &chat,
-            tool_tokens,
-            model_modalities.as_deref(),
-        );
+        status!();
         if let Err(error) = generation {
             if error
                 .downcast_ref::<std::io::Error>()
