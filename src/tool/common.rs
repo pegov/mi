@@ -17,6 +17,16 @@ pub trait Tool {
     fn name(&self) -> &str;
     fn json(&self) -> serde_json::Value;
     fn call(&mut self, args: &str) -> anyhow::Result<String>;
+    fn call_cancellable(
+        &mut self,
+        args: &str,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> anyhow::Result<String> {
+        if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(std::io::Error::from(std::io::ErrorKind::Interrupted).into());
+        }
+        self.call(args)
+    }
 }
 
 pub enum WebToolKind {

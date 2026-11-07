@@ -1,4 +1,13 @@
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    io::{Read, Seek},
+    os::unix::process::CommandExt,
+    path::Path,
+    process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+    time::Duration,
+};
 
 use serde::Deserialize;
 
@@ -61,6 +70,10 @@ impl Tool for BashTool {
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {
+        self.call_cancellable(args, &AtomicBool::new(false))
+    }
+
+    fn call_cancellable(&mut self, args: &str, cancelled: &AtomicBool) -> anyhow::Result<String> {
         let args: BashToolArgs = serde_json::from_str(args)?;
         let timeout = args.timeout.unwrap_or(60);
         if !(1..=120).contains(&timeout) {
@@ -73,11 +86,40 @@ impl Tool for BashTool {
         if let Some(cwd) = args.cwd.filter(|cwd| !cwd.is_empty()) {
             cmd.current_dir(cwd);
         }
-        let output = cmd.output()?;
-
-        let mut stdout = String::from_utf8_lossy(&output.stdout);
-        let mut stderr = String::from_utf8_lossy(&output.stderr);
-        let exit_code = output.status.code().unwrap_or(-1);
+        let mut stdout_file = tempfile::tempfile()?;
+        let mut stderr_file = tempfile::tempfile()?;
+        cmd.stdin(Stdio::null())
+            .stdout(stdout_file.try_clone()?)
+            .stderr(stderr_file.try_clone()?)
+            .process_group(0);
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(std::io::Error::from(std::io::ErrorKind::Interrupted).into());
+        }
+        let mut child = cmd.spawn()?;
+        let status = loop {
+            if cancelled.load(Ordering::Relaxed) {
+                let killed = Command::new("kill")
+                    .args(["-KILL", "--", &format!("-{}", child.id())])
+                    .status();
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::ensure!(killed?.success(), "failed to kill command process group");
+                return Err(std::io::Error::from(std::io::ErrorKind::Interrupted).into());
+            }
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        stdout_file.rewind()?;
+        stderr_file.rewind()?;
+        let mut stdout_bytes = Vec::new();
+        let mut stderr_bytes = Vec::new();
+        stdout_file.read_to_end(&mut stdout_bytes)?;
+        stderr_file.read_to_end(&mut stderr_bytes)?;
+        let mut stdout = String::from_utf8_lossy(&stdout_bytes);
+        let mut stderr = String::from_utf8_lossy(&stderr_bytes);
+        let exit_code = status.code().unwrap_or(-1);
 
         let should_cut_stdout = stdout.lines().count() > self.stdout_last_n_lines;
         let should_cut_stderr = stderr.lines().count() > self.stderr_last_n_lines;

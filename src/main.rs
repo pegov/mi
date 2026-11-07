@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    sync::{Arc, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::Duration,
 };
@@ -46,17 +46,18 @@ use crate::{
 #[derive(Default)]
 struct Tools {
     defs: Vec<serde_json::Value>,
-    map: HashMap<String, Box<dyn Tool + Send>>,
+    map: HashMap<String, Arc<Mutex<Box<dyn Tool + Send>>>>,
 }
 
 impl Tools {
     fn push(&mut self, tool: Box<dyn Tool + Send>) {
         self.defs.push(tool.json());
-        self.map.insert(tool.name().to_owned(), tool);
+        self.map
+            .insert(tool.name().to_owned(), Arc::new(Mutex::new(tool)));
     }
 
-    fn get_mut(&mut self, name: &str) -> Option<&mut Box<dyn Tool + Send>> {
-        self.map.get_mut(name)
+    fn get(&self, name: &str) -> Option<Arc<Mutex<Box<dyn Tool + Send>>>> {
+        self.map.get(name).cloned()
     }
 }
 
@@ -389,7 +390,10 @@ fn compact(
     session.collect_summary_usage();
     if session.pending_summaries.is_empty()
         && let Some(gateway) = credits_gateway
-        && let Ok(Ok(credits)) = tui.run(|| credits::get_credits(gateway))
+        && let Ok(Ok(credits)) = tui.run({
+            let gateway = gateway.to_owned();
+            move |_| credits::get_credits(&gateway)
+        })
     {
         session.update(&credits);
     }
@@ -889,7 +893,8 @@ fn run_chat(
                 }
 
                 if let Some(credits_gateway) = credits_gateway {
-                    let credits = tui.run(|| credits::get_credits(credits_gateway))??;
+                    let gateway = credits_gateway.to_owned();
+                    let credits = tui.run(move |_| credits::get_credits(&gateway))??;
                     session.update(&credits);
                 }
 
@@ -977,9 +982,17 @@ fn run_chat(
                             tool_call.id.clone(),
                             "Tool call abandoned: the response was truncated.".into(),
                         ));
-                    } else if let Some(tool_impl) = tool_registry.get_mut(&tool_call.function) {
+                    } else if let Some(tool_impl) = tool_registry.get(&tool_call.function) {
+                        let arguments = tool_call.arguments.clone();
                         let result = tui
-                            .run(|| tool_impl.call(&tool_call.arguments))?
+                            .run(move |cancelled| match tool_impl.try_lock() {
+                                Ok(mut tool_impl) => {
+                                    tool_impl.call_cancellable(&arguments, &cancelled)
+                                }
+                                Err(_) => {
+                                    anyhow::bail!("tool is still busy from an interrupted call")
+                                }
+                            })?
                             .unwrap_or_else(|e| format!("failed to call tool: {e}"));
                         tui.print(printer::Mode::Content, &result)?;
                         tui.finish()?;
@@ -1145,8 +1158,11 @@ fn get_model_info(
     tui: &mut Tui,
 ) -> anyhow::Result<(ModelInfo, serde_json::Value)> {
     let model_id = model.model();
-    let (info, endpoints) = tui.run(|| -> anyhow::Result<(ModelInfo, Vec<Endpoint>)> {
-        let query_url = Url::parse_with_params(url, &[("q", model_id)])?;
+    let client = client.clone();
+    let url = url.to_owned();
+    let query_model_id = model_id.to_owned();
+    let (info, endpoints) = tui.run(move |_| -> anyhow::Result<(ModelInfo, Vec<Endpoint>)> {
+        let query_url = Url::parse_with_params(&url, &[("q", &query_model_id)])?;
         let response = client.get(query_url).send()?;
         let status = response.status();
         let body_text = response.text()?;
@@ -1160,11 +1176,11 @@ fn get_model_info(
             .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
         let model_value = models
             .iter()
-            .find(|value| value["id"] == model_id)
-            .ok_or_else(|| anyhow::anyhow!("model '{model_id}' not found"))?;
+            .find(|value| value["id"] == query_model_id)
+            .ok_or_else(|| anyhow::anyhow!("model '{query_model_id}' not found"))?;
         let info: ModelInfo = serde_json::from_value(model_value.clone())?;
 
-        let mut endpoints_url = Url::parse(url)?;
+        let mut endpoints_url = Url::parse(&url)?;
         {
             let mut segments = endpoints_url
                 .path_segments_mut()

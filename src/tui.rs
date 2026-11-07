@@ -1,6 +1,10 @@
 use std::{
     io,
-    sync::mpsc::{self, Receiver, RecvTimeoutError},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -226,16 +230,20 @@ impl Tui {
         }
     }
 
-    pub fn run<T: Send>(&mut self, work: impl FnOnce() -> T + Send) -> anyhow::Result<T> {
+    pub fn run<T: Send + 'static>(
+        &mut self,
+        work: impl FnOnce(Arc<AtomicBool>) -> T + Send + 'static,
+    ) -> anyhow::Result<T> {
         self.draw()?;
-        thread::scope(|scope| {
-            let (tx, rx) = mpsc::channel();
-            scope.spawn(move || {
-                let _ = tx.send(work());
-            });
-            self.recv(&rx)?
-                .ok_or_else(|| anyhow::anyhow!("worker disconnected"))
-        })
+        let (tx, rx) = mpsc::channel();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        thread::spawn(move || {
+            let _ = tx.send(work(worker_cancelled));
+        });
+        let result = self.recv(&rx);
+        cancelled.store(true, Ordering::Relaxed);
+        result?.ok_or_else(|| anyhow::anyhow!("worker disconnected"))
     }
 
     pub fn write(&mut self, text: &str) -> anyhow::Result<()> {
