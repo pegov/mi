@@ -330,13 +330,11 @@ impl Tui {
     pub fn print(&mut self, mode: Mode, text: &str) -> anyhow::Result<()> {
         if mode != self.mode {
             self.flush()?;
-            if self.mode == Mode::Reasoning {
-                self.write("</THINK>\n")?;
-            }
-            self.style = Style::default();
-            if mode == Mode::Reasoning {
-                self.write("<THINK>\n")?;
-            }
+            self.style = if mode == Mode::Reasoning {
+                Style::default().fg(Color::Rgb(130, 150, 170))
+            } else {
+                Style::default()
+            };
             self.code_delimiter = 0;
             self.mode = mode;
         }
@@ -345,9 +343,6 @@ impl Tui {
 
     pub fn finish(&mut self) -> anyhow::Result<()> {
         self.flush()?;
-        if self.mode == Mode::Reasoning {
-            self.write("</THINK>\n")?;
-        }
         self.code_delimiter = 0;
         self.mode = Mode::None;
         self.style = Style::default();
