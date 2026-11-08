@@ -55,7 +55,7 @@ impl Cursor {
         };
 
         format!(
-            "SESS: {} | REMN: {} | {}({}) INPUT, {} OUTPUT, {} CONTEXT / {} MAX ({:.2}%)\n> ",
+            "{} / {} | {}({}) ↓, {} ↑, {} / {} ({:.2}%)\n> ",
             session.delta_string(),
             session.remaining_string(),
             format_tokens_count(session.input_tokens),

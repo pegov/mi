@@ -85,11 +85,11 @@ impl Session {
 
     pub fn delta_string(&self) -> String {
         let delta = self.start_balance - self.curr_balance;
-        format!("${:.5}", delta)
+        format!("${:.3}", delta)
     }
 
     pub fn remaining_string(&self) -> String {
-        format!("${:.5}", self.curr_balance)
+        format!("${:.3}", self.curr_balance)
     }
 }
 

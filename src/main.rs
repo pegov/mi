@@ -192,14 +192,14 @@ fn update_status(
     session.active_context_tokens =
         session.estimate_context(chat.session.estimate_active_tokens() + tool_tokens);
     tui.status = format!(
-        "{} | MODEL: {}{}{} | REASONING: {}",
+        "{} | {} ({}){}{}",
         cursor.to_string(session).trim_end_matches("\n> "),
         chat.model(),
+        chat.reasoning(),
         chat.providers()["order"][0]
             .as_str()
             .map_or_else(String::new, |provider| format!(" [{provider}]")),
         model_modalities.map_or_else(String::new, |modalities| format!(" ({modalities})")),
-        chat.reasoning(),
     );
     if let Some(service_tier) = chat.service_tier() {
         tui.status
