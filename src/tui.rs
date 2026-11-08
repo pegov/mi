@@ -36,15 +36,53 @@ pub struct Tui {
     buffer: String,
     mode: Mode,
     style: Style,
+    code_delimiter: usize,
 }
 
-fn wrap_lines(text: &str, width: u16, style: Style) -> Vec<Line<'static>> {
+fn wrap_lines(
+    text: &str,
+    width: u16,
+    style: Style,
+    code_delimiter: Option<&mut usize>,
+) -> Vec<Line<'static>> {
+    let highlight = code_delimiter.is_some();
+    let mut delimiter = code_delimiter.as_deref().copied().unwrap_or(0);
     let width = usize::from(width.max(1));
     let mut lines = Vec::new();
     for line in text.split('\n') {
-        let mut buffer = String::new();
+        if highlight {
+            let trimmed = line.trim_start();
+            let count = trimmed.chars().take_while(|&c| c == '`').count();
+            if count >= 3 && (delimiter == 0 || delimiter == count) {
+                delimiter = if delimiter == 0 { count } else { 0 };
+                continue;
+            }
+        }
+        let mut buffer = Vec::new();
         let mut used = 0;
-        for c in line.chars() {
+        let mut ticks_left = 0;
+        for (index, c) in line.char_indices() {
+            let mut char_style = style;
+            if highlight {
+                if c == '`' && delimiter < 3 {
+                    if ticks_left == 0 {
+                        let count = line[index..].chars().take_while(|&c| c == '`').count();
+                        if delimiter == 0 || delimiter == count {
+                            ticks_left = count;
+                            delimiter = if delimiter == 0 { count } else { 0 };
+                        }
+                    }
+                    if ticks_left > 0 {
+                        ticks_left -= 1;
+                        continue;
+                    }
+                    if delimiter != 0 {
+                        char_style = style.fg(Color::Rgb(255, 165, 0));
+                    }
+                } else if delimiter != 0 {
+                    char_style = style.fg(Color::Rgb(255, 165, 0));
+                }
+            }
             if c.is_control() && c != '\t' {
                 continue;
             }
@@ -56,14 +94,17 @@ fn wrap_lines(text: &str, width: u16, style: Style) -> Vec<Line<'static>> {
             for c in text.chars() {
                 let size = Span::raw(c.to_string()).width();
                 if used + size > width && !buffer.is_empty() {
-                    lines.push(Line::styled(std::mem::take(&mut buffer), style));
+                    lines.push(Line::from(std::mem::take(&mut buffer)));
                     used = 0;
                 }
-                buffer.push(c);
+                buffer.push(Span::styled(c.to_string(), char_style));
                 used += size;
             }
         }
-        lines.push(Line::styled(buffer, style));
+        lines.push(Line::from(buffer));
+    }
+    if let Some(code_delimiter) = code_delimiter {
+        *code_delimiter = delimiter;
     }
     lines
 }
@@ -94,6 +135,7 @@ impl Tui {
             buffer: String::new(),
             mode: Mode::None,
             style: Style::default(),
+            code_delimiter: 0,
         };
         io::stdout().execute(event::PushKeyboardEnhancementFlags(
             KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
@@ -137,8 +179,14 @@ impl Tui {
         } else {
             Style::default().fg(Color::Rgb(255, 165, 0))
         };
-        let input = wrap_lines(&text, size.width, style);
-        let dynamic = wrap_lines(&self.buffer, size.width, self.style);
+        let input = wrap_lines(&text, size.width, style, None);
+        let mut code_delimiter = self.code_delimiter;
+        let dynamic = wrap_lines(
+            &self.buffer,
+            size.width,
+            self.style,
+            (self.mode == Mode::Content).then_some(&mut code_delimiter),
+        );
         let matches = self.command_matches();
         let available_height = usize::from(size.height);
         let available_height = available_height - (input.len() + 2).min(available_height);
@@ -252,7 +300,12 @@ impl Tui {
             for part in text.split_inclusive('\n') {
                 if let Some(line) = part.strip_suffix('\n') {
                     self.buffer.push_str(line);
-                    let lines = wrap_lines(&self.buffer, self.terminal.size()?.width, self.style);
+                    let lines = wrap_lines(
+                        &self.buffer,
+                        self.terminal.size()?.width,
+                        self.style,
+                        (self.mode == Mode::Content).then_some(&mut self.code_delimiter),
+                    );
                     for chunk in lines.chunks(usize::from(u16::MAX)) {
                         self.terminal.insert_before(chunk.len() as u16, |buf| {
                             Paragraph::new(chunk.to_vec()).render(buf.area, buf);
@@ -284,6 +337,7 @@ impl Tui {
             if mode == Mode::Reasoning {
                 self.write("<THINK>\n")?;
             }
+            self.code_delimiter = 0;
             self.mode = mode;
         }
         self.write(text)
@@ -294,6 +348,7 @@ impl Tui {
         if self.mode == Mode::Reasoning {
             self.write("</THINK>\n")?;
         }
+        self.code_delimiter = 0;
         self.mode = Mode::None;
         self.style = Style::default();
         self.draw()
