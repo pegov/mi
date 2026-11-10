@@ -141,6 +141,9 @@ pub enum OpenRouterModel {
     #[serde(rename = "kimi")]
     #[value(name = "kimi")]
     Kimi,
+    #[serde(rename = "muse-ember")]
+    #[value(name = "muse-ember")]
+    MuseEmber,
 }
 
 impl OpenRouterModel {
@@ -156,6 +159,7 @@ impl OpenRouterModel {
             Self::OpenAITerra => "terra",
             Self::OpenAISol => "sol",
             Self::Kimi => "kimi",
+            Self::MuseEmber => "muse-ember",
         }
     }
 
@@ -168,6 +172,7 @@ impl OpenRouterModel {
             Self::OpenAITerraFlex | Self::OpenAITerra => "openai/gpt-6.1-terra",
             Self::OpenAISolFlex | Self::OpenAISol => "openai/gpt-6.1-sol",
             Self::Kimi => "moonshotai/kimi-k3.1-pro",
+            Self::MuseEmber => "meta/muse-ember",
         }
     }
 
@@ -179,6 +184,7 @@ impl OpenRouterModel {
             Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => &["openai/flex"],
             Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => &["openai"],
             Self::Kimi => &["moonshotai/mxfp4"],
+            Self::MuseEmber => &["meta"],
         }
     }
 
@@ -198,7 +204,8 @@ impl OpenRouterModel {
             | Self::OpenAILuna
             | Self::OpenAITerra
             | Self::OpenAISol
-            | Self::Kimi => None,
+            | Self::Kimi
+            | Self::MuseEmber => None,
         }
     }
 }
