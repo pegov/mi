@@ -7,12 +7,21 @@ struct CreditsData {
 }
 
 #[derive(Deserialize, Debug)]
-struct CreditsResponse {
-    data: CreditsData,
+#[serde(untagged)]
+enum CreditsResponse {
+    OpenRouter { data: CreditsData },
+    DeepSeek { balance_infos: Vec<BalanceInfo> },
+}
+
+#[derive(Deserialize, Debug)]
+struct BalanceInfo {
+    currency: String,
+    total_balance: String,
 }
 
 #[derive(Default)]
 pub struct Session {
+    pub currency: Option<&'static str>,
     pub start_balance: f64,
     pub curr_balance: f64,
     pub input_tokens: u64,
@@ -26,6 +35,7 @@ pub struct Session {
 impl Session {
     fn new(start_balance: f64) -> Self {
         Self {
+            currency: Some("$"),
             start_balance,
             curr_balance: start_balance,
             input_tokens: 0,
@@ -85,22 +95,26 @@ impl Session {
 
     pub fn delta_string(&self) -> String {
         let delta = self.start_balance - self.curr_balance;
-        format!("${:.3}", delta)
+        format!("{}{:.3}", self.currency.unwrap_or("$"), delta)
     }
 
     pub fn remaining_string(&self) -> String {
-        format!("${:.3}", self.curr_balance)
+        format!("{}{:.3}", self.currency.unwrap_or("$"), self.curr_balance)
     }
 }
 
 impl From<&Credits> for Session {
     fn from(value: &Credits) -> Self {
-        Self::new(value.remaining)
+        Self {
+            currency: Some(value.currency),
+            ..Self::new(value.remaining)
+        }
     }
 }
 
 #[allow(dead_code)]
 pub struct Credits {
+    pub currency: &'static str,
     pub balance: f64,
     pub usage: f64,
     pub remaining: f64,
@@ -109,6 +123,7 @@ pub struct Credits {
 impl Credits {
     pub fn new(balance: f64, usage: f64, remaining: f64) -> Self {
         Self {
+            currency: "$",
             balance,
             usage,
             remaining,
@@ -118,12 +133,29 @@ impl Credits {
 
 pub fn get_credits(url: &str) -> anyhow::Result<Credits> {
     let client = reqwest::blocking::Client::new();
-    let response: CreditsResponse = client.get(url).send()?.json()?;
-    let remaining_balance = response.data.total_credits - response.data.total_usage;
-
-    Ok(Credits::new(
-        response.data.total_credits,
-        response.data.total_usage,
-        remaining_balance,
-    ))
+    let response: CreditsResponse = client.get(url).send()?.error_for_status()?.json()?;
+    match response {
+        CreditsResponse::OpenRouter { data } => Ok(Credits::new(
+            data.total_credits,
+            data.total_usage,
+            data.total_credits - data.total_usage,
+        )),
+        CreditsResponse::DeepSeek { balance_infos } => {
+            let balance = balance_infos
+                .iter()
+                .find(|balance| balance.currency == "USD")
+                .or_else(|| {
+                    balance_infos
+                        .iter()
+                        .find(|balance| balance.currency == "CNY")
+                })
+                .ok_or_else(|| anyhow::anyhow!("no USD or CNY balance in DeepSeek response"))?;
+            let remaining: f64 = balance.total_balance.parse()?;
+            anyhow::ensure!(remaining.is_finite(), "invalid DeepSeek balance");
+            Ok(Credits {
+                currency: if balance.currency == "USD" { "$" } else { "¥" },
+                ..Credits::new(remaining, 0.0, remaining)
+            })
+        }
+    }
 }

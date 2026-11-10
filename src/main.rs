@@ -164,6 +164,7 @@ fn build_system_prompt(
 }
 
 struct ChatOptions {
+    model: Option<&'static str>,
     resume: bool,
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
@@ -492,7 +493,10 @@ fn run_chat(
         credits::Session::default()
     };
 
-    let mut settings = compaction::Settings::resolve(compaction_config.as_ref(), model.model())?;
+    let mut settings = compaction::Settings::resolve(
+        compaction_config.as_ref(),
+        opts.model.unwrap_or(model.model()),
+    )?;
     let mut cursor = Cursor::new(max_context);
 
     let skills = parse_skills()?;
@@ -552,21 +556,55 @@ fn run_chat(
     let mut providers = model.provider();
     let mut model_modalities = None;
     if let Some(url) = &opts.models_url {
-        let (info, selected_providers) = get_model_info(&client, url, &model, &mut tui)?;
-        providers = selected_providers;
-        max_context = Some(info.limits.context_length);
-        output_limit = info.limits.output.max_completion_tokens;
+        if let Some(model_id) = opts.model {
+            let client = client.clone();
+            let url = url.clone();
+            let info = tui.run(move |_| -> anyhow::Result<DeepSeekModelInfo> {
+                let response = client.get(&url).send()?;
+                let status = response.status();
+                let body_text = response.text()?;
+                if !status.is_success() {
+                    anyhow::bail!("API {status} error: {body_text}");
+                }
+                let body: serde_json::Value = serde_json::from_str(&body_text)
+                    .map_err(|e| anyhow::anyhow!("invalid JSON: {e} — body: {body_text}"))?;
+                let models = body["data"]
+                    .as_array()
+                    .ok_or_else(|| anyhow::anyhow!("missing data array in response"))?;
+                let value = models
+                    .iter()
+                    .find(|value| value["id"] == model_id)
+                    .ok_or_else(|| anyhow::anyhow!("model '{model_id}' not found"))?;
+                Ok(serde_json::from_value(value.clone())?)
+            })??;
+            max_context = info.context_window.filter(|&tokens| tokens > 0);
+            output_limit = info.max_output_tokens.filter(|&tokens| tokens > 0);
+            if !info.architecture.input_modalities.is_empty()
+                && !info.architecture.output_modalities.is_empty()
+            {
+                model_modalities = Some(info.architecture.to_status());
+            }
+        } else {
+            let (info, selected_providers) = get_model_info(&client, url, &model, &mut tui)?;
+            providers = selected_providers;
+            max_context = Some(info.limits.context_length);
+            output_limit = info.limits.output.max_completion_tokens;
+            model_modalities = Some(info.architecture.to_status());
+        }
         cursor = Cursor::new(max_context);
-        model_modalities = Some(info.architecture.to_status());
     }
     if max_context.is_none() && settings.enabled {
-        tui.write("Context capacity is unknown; automatic threshold compaction is disabled. Set local.context_window to enable it.\n")?;
+        tui.write("Context capacity is unknown; automatic threshold compaction is disabled.")?;
+        if opts.models_url.is_none() {
+            tui.write(" Set local.context_window to enable it.")?;
+        }
+        tui.write("\n")?;
     }
 
     let mut prompt_history = Vec::new();
 
     let mut chat = chat::Chat::new(
-        model.model(),
+        opts.model.unwrap_or(model.model()),
         providers,
         model.service_tier(),
         reasoning_effort,
@@ -611,6 +649,13 @@ fn run_chat(
             .unwrap_or((prompt, ""));
         let arg = arg.trim();
         if matches!(word, "/model" | "/m") {
+            if let Some(model) = opts.model {
+                tui.write(&format!("Model is fixed to {model}.\n"))?;
+                if oneshot.is_some() {
+                    break;
+                }
+                continue;
+            }
             match arg.parse::<OpenRouterModel>() {
                 Ok(new_model) => {
                     let result = (|| -> anyhow::Result<()> {
@@ -670,6 +715,7 @@ fn run_chat(
             chat.session = chat::Session::new_system(&system_prompt);
             chat.save_session()?;
             session = credits::Session {
+                currency: session.currency,
                 start_balance: session.curr_balance,
                 curr_balance: session.curr_balance,
                 context_ratio: session.context_ratio,
@@ -1085,6 +1131,14 @@ fn run_chat(
     Ok(())
 }
 
+#[derive(Deserialize)]
+struct DeepSeekModelInfo {
+    context_window: Option<u64>,
+    max_output_tokens: Option<u64>,
+    #[serde(flatten)]
+    architecture: ModelArchitecture,
+}
+
 #[derive(Debug, Deserialize)]
 struct ModelInfo {
     id: String,
@@ -1095,7 +1149,9 @@ struct ModelInfo {
 
 #[derive(Debug, Deserialize)]
 struct ModelArchitecture {
+    #[serde(default)]
     input_modalities: Vec<String>,
+    #[serde(default)]
     output_modalities: Vec<String>,
 }
 
@@ -1292,6 +1348,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let chat_completions_url = format!("{base_url}/chat/completions");
 
             let opts = ChatOptions {
+                model: None,
                 resume: chat.resume,
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,
@@ -1326,6 +1383,47 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 opts,
             )?;
         }
+        cmd::Command::DeepSeek { reasoning, chat } => {
+            let profile =
+                config.load_profile(chat.profile.as_deref(), chat.system_prompt_preset)?;
+            let reasoning = reasoning
+                .or(profile.reasoning)
+                .unwrap_or(OpenRouterReasoning::Low);
+            let base_url = config
+                .deepseek
+                .ok_or_else(|| {
+                    anyhow::anyhow!("deepseek requires deepseek.base_url in config.json")
+                })?
+                .base_url;
+            let chat_completions_url = format!("{base_url}/chat/completions");
+            let credits_url = format!("{base_url}/user/balance");
+            println!(
+                "DeepSeek | model: deepseek-flash | reasoning: {}",
+                reasoning.as_str(),
+            );
+
+            let opts = ChatOptions {
+                model: Some("deepseek-flash"),
+                resume: chat.resume,
+                disable_default_system_prompt: chat.disable_default_system_prompt,
+                ignore_root_agents_md: chat.ignore_root_agents_md,
+                oneshot: chat.oneshot,
+                models_url: Some(format!("{base_url}/models")),
+                search_base_url: chat.with_search.then_some(base_url),
+            };
+
+            run_chat(
+                OpenRouterModel::None,
+                reasoning,
+                None,
+                None,
+                config.compaction,
+                Some(&credits_url),
+                &chat_completions_url,
+                &profile.spp,
+                opts,
+            )?;
+        }
         cmd::Command::OpenRouter {
             model,
             reasoning,
@@ -1354,6 +1452,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             }
 
             let opts = ChatOptions {
+                model: None,
                 resume: chat.resume,
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,

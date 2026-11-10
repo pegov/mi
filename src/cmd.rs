@@ -62,6 +62,13 @@ pub enum Command {
         #[command(flatten)]
         chat: ChatArgs,
     },
+    #[command(name = "deepseek", alias = "ds")]
+    DeepSeek {
+        #[arg(short, long, value_enum)]
+        reasoning: Option<OpenRouterReasoning>,
+        #[command(flatten)]
+        chat: ChatArgs,
+    },
     #[command(name = "openrouter", alias = "or")]
     OpenRouter {
         #[arg(short, long, value_enum)]
