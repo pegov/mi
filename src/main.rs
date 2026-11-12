@@ -1040,7 +1040,9 @@ fn run_chat(
                                 }
                             })?
                             .unwrap_or_else(|e| format!("failed to call tool: {e}"));
-                        tui.print(printer::Mode::Content, &result)?;
+                        if !matches!(tool_call.function.as_str(), "search" | "fetch") {
+                            tui.print(printer::Mode::Content, &result)?;
+                        }
                         tui.finish()?;
                         tools.push(chat::Tool::new(tool_call.id.clone(), result));
                     } else {
