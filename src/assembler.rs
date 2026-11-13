@@ -23,10 +23,6 @@ impl ToolCall {
             arguments: String::new(),
         }
     }
-
-    pub fn push_arguments(&mut self, arguments: &str) {
-        self.arguments.push_str(arguments);
-    }
 }
 
 #[derive(Default)]
@@ -45,7 +41,7 @@ impl Assembler {
                 a_content.push_str(content);
                 return;
             } else {
-                self.content = Some(String::from(content));
+                self.content = Some(content.clone());
             }
         }
 
@@ -57,7 +53,7 @@ impl Assembler {
                 {
                     let mut a_tool_call = ToolCall::new(id, tool_call.index, type_, name);
                     if let Some(ref arguments) = tool_call.function.arguments {
-                        a_tool_call.push_arguments(arguments);
+                        a_tool_call.arguments.push_str(arguments);
                     }
                     self.tool_calls.push(a_tool_call);
                 } else {
@@ -72,7 +68,7 @@ impl Assembler {
 
                     let a_tool_call = &mut self.tool_calls[tool_call.index];
                     if let Some(ref arguments) = tool_call.function.arguments {
-                        a_tool_call.push_arguments(arguments);
+                        a_tool_call.arguments.push_str(arguments);
                         return;
                     }
                 }
