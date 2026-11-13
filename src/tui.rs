@@ -12,6 +12,7 @@ use std::{
 use crossterm::{
     ExecutableCommand, SynchronizedUpdate,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags},
+    terminal::disable_raw_mode,
 };
 use ratatui::{
     DefaultTerminal, TerminalOptions, Viewport,
@@ -365,6 +366,6 @@ impl Drop for Tui {
         let _ = self.terminal.show_cursor();
         let _ = io::stdout().execute(event::PopKeyboardEnhancementFlags);
         let _ = io::stdout().execute(event::DisableBracketedPaste);
-        ratatui::restore();
+        let _ = disable_raw_mode();
     }
 }
