@@ -117,6 +117,9 @@ pub enum OpenRouterModel {
     #[serde(rename = "deepseek")]
     #[value(name = "deepseek")]
     DeepSeek,
+    #[serde(rename = "hy4-flash")]
+    #[value(name = "hy4-flash")]
+    Hy4Flash,
     #[serde(rename = "glm-flash")]
     #[value(name = "glm-flash")]
     GlmFlash,
@@ -151,6 +154,7 @@ impl OpenRouterModel {
         match *self {
             Self::None => "none",
             Self::DeepSeek => "deepseek",
+            Self::Hy4Flash => "hy4-flash",
             Self::GlmFlash => "glm-flash",
             Self::OpenAILunaFlex => "luna/flex",
             Self::OpenAITerraFlex => "terra/flex",
@@ -167,6 +171,7 @@ impl OpenRouterModel {
         match *self {
             Self::None => "none",
             Self::DeepSeek => "deepseek/deepseek-v4.1-flash-1017",
+            Self::Hy4Flash => "tencent/hy4-flash",
             Self::GlmFlash => "z-ai/glm-5.3-flash",
             Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
             Self::OpenAITerraFlex | Self::OpenAITerra => "openai/gpt-6.1-terra",
@@ -180,6 +185,7 @@ impl OpenRouterModel {
         match self {
             Self::None => &[],
             Self::DeepSeek => &["deepseek"],
+            Self::Hy4Flash => &["tencent/fp8"],
             Self::GlmFlash => &["z-ai/fp8"],
             Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => &["openai/flex"],
             Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => &["openai"],
@@ -200,6 +206,7 @@ impl OpenRouterModel {
             Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => Some("flex"),
             Self::None
             | Self::DeepSeek
+            | Self::Hy4Flash
             | Self::GlmFlash
             | Self::OpenAILuna
             | Self::OpenAITerra
