@@ -131,9 +131,6 @@ pub enum OpenRouterModel {
     #[serde(rename = "terra/flex")]
     #[value(name = "terra/flex")]
     OpenAITerraFlex,
-    #[serde(rename = "sol/flex")]
-    #[value(name = "sol/flex")]
-    OpenAISolFlex,
     #[serde(rename = "luna")]
     #[value(name = "luna")]
     OpenAILuna,
@@ -160,7 +157,6 @@ impl OpenRouterModel {
             Self::GlmFlash => "glm-flash",
             Self::OpenAILunaFlex => "luna/flex",
             Self::OpenAITerraFlex => "terra/flex",
-            Self::OpenAISolFlex => "sol/flex",
             Self::OpenAILuna => "luna",
             Self::OpenAITerra => "terra",
             Self::OpenAISol => "sol",
@@ -177,7 +173,7 @@ impl OpenRouterModel {
             Self::GlmFlash => "z-ai/glm-5.3-flash",
             Self::OpenAILunaFlex | Self::OpenAILuna => "openai/gpt-6-luna",
             Self::OpenAITerraFlex | Self::OpenAITerra => "openai/gpt-6.1-terra",
-            Self::OpenAISolFlex | Self::OpenAISol => "openai/gpt-6.1-sol",
+            Self::OpenAISol => "openai/gpt-6.2-sol",
             Self::Kimi => "moonshotai/kimi-k3.1-pro",
             Self::MuseEmber => "meta/muse-ember",
         }
@@ -189,7 +185,7 @@ impl OpenRouterModel {
             Self::DeepSeek => &["deepseek"],
             Self::Hy4Flash => &["tencent/fp8"],
             Self::GlmFlash => &["z-ai/fp8"],
-            Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => &["openai/flex"],
+            Self::OpenAILunaFlex | Self::OpenAITerraFlex => &["openai/flex"],
             Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => &["openai"],
             Self::Kimi => &["moonshotai/mxfp4"],
             Self::MuseEmber => &["meta"],
@@ -205,7 +201,7 @@ impl OpenRouterModel {
 
     pub fn service_tier(&self) -> Option<&'static str> {
         match *self {
-            Self::OpenAILunaFlex | Self::OpenAITerraFlex | Self::OpenAISolFlex => Some("flex"),
+            Self::OpenAILunaFlex | Self::OpenAITerraFlex => Some("flex"),
             Self::None
             | Self::DeepSeek
             | Self::Hy4Flash
