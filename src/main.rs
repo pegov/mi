@@ -169,6 +169,7 @@ struct ChatOptions {
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
     oneshot: Option<String>,
+    show_reasoning: bool,
     models_url: Option<String>,
     search_base_url: Option<String>,
 }
@@ -485,6 +486,7 @@ fn run_chat(
         opts.ignore_root_agents_md,
         opts.oneshot,
     );
+    let show_reasoning = opts.show_reasoning;
 
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -894,6 +896,7 @@ fn run_chat(
 
                                 if let Some(ref reasoning) = choice.delta.reasoning
                                     && !reasoning.is_empty()
+                                    && show_reasoning
                                 {
                                     tui.activity = Some("Thinking");
                                     tui.print(printer::Mode::Reasoning, reasoning)?;
@@ -1355,6 +1358,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
+                show_reasoning: chat.show_reasoning,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {
@@ -1410,6 +1414,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
+                show_reasoning: chat.show_reasoning,
                 models_url: Some(format!("{base_url}/models")),
                 search_base_url: chat.with_search.then_some(base_url),
             };
@@ -1459,6 +1464,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 disable_default_system_prompt: chat.disable_default_system_prompt,
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
+                show_reasoning: chat.show_reasoning,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {

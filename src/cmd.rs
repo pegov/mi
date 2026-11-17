@@ -41,6 +41,8 @@ pub struct ChatArgs {
     pub oneshot: Option<String>,
     #[arg(long)]
     pub resume: bool,
+    #[arg(long)]
+    pub show_reasoning: bool,
     #[arg(short, long)]
     pub profile: Option<String>,
     #[arg(long, visible_alias = "spp")]
