@@ -146,6 +146,9 @@ pub enum OpenRouterModel {
     #[serde(rename = "muse-ember")]
     #[value(name = "muse-ember")]
     MuseEmber,
+    #[serde(rename = "neon")]
+    #[value(name = "neon")]
+    Gemini4Neon,
 }
 
 impl OpenRouterModel {
@@ -162,6 +165,7 @@ impl OpenRouterModel {
             Self::OpenAISol => "sol",
             Self::Kimi => "kimi",
             Self::MuseEmber => "muse-ember",
+            Self::Gemini4Neon => "neon",
         }
     }
 
@@ -176,6 +180,7 @@ impl OpenRouterModel {
             Self::OpenAISol => "openai/gpt-6.2-sol",
             Self::Kimi => "moonshotai/kimi-k3.1-pro",
             Self::MuseEmber => "meta/muse-ember",
+            Self::Gemini4Neon => "google/gemini-4-neon",
         }
     }
 
@@ -189,6 +194,7 @@ impl OpenRouterModel {
             Self::OpenAILuna | Self::OpenAITerra | Self::OpenAISol => &["openai"],
             Self::Kimi => &["moonshotai/mxfp4"],
             Self::MuseEmber => &["meta"],
+            Self::Gemini4Neon => &["google-vertex/global"],
         }
     }
 
@@ -210,7 +216,8 @@ impl OpenRouterModel {
             | Self::OpenAITerra
             | Self::OpenAISol
             | Self::Kimi
-            | Self::MuseEmber => None,
+            | Self::MuseEmber
+            | Self::Gemini4Neon => None,
         }
     }
 }
