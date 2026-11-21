@@ -71,38 +71,37 @@ pub fn handle_events(
                     (KeyCode::Esc, _) => {
                         tui.commands_dismissed = true;
                     }
-                    (KeyCode::Up | KeyCode::Down, _) if !tui.command_matches().1.is_empty() => {
-                        let count = tui.command_matches().1.len();
-                        tui.command_selection = if code == KeyCode::Down {
-                            (tui.command_selection + 1) % count
-                        } else {
-                            (tui.command_selection + count - 1) % count
-                        };
-                    }
                     (KeyCode::Tab, _) => {
-                        let (command, matches) = tui.command_matches();
-                        if let Some((name, _)) = matches.get(tui.command_selection) {
-                            *user_prompt = if command.is_empty() {
-                                format!("{name} ")
-                            } else {
-                                format!("{command} {name} ")
+                        if let Some((name, _)) = tui.command_matches().get(tui.command_selection) {
+                            *user_prompt = match user_prompt.split_once(char::is_whitespace) {
+                                Some((command, _)) => format!("{command} {name} "),
+                                None => format!("{name} "),
                             };
                         }
                     }
                     (KeyCode::Up | KeyCode::Down, _) => {
-                        match code {
-                            KeyCode::Up if history_index > 0 => {
-                                if history_index == history.len() {
-                                    draft = user_prompt.clone();
+                        let count = tui.command_matches().len();
+                        if count > 0 {
+                            tui.command_selection = if code == KeyCode::Down {
+                                (tui.command_selection + 1) % count
+                            } else {
+                                (tui.command_selection + count - 1) % count
+                            };
+                        } else {
+                            match code {
+                                KeyCode::Up if history_index > 0 => {
+                                    if history_index == history.len() {
+                                        draft = user_prompt.clone();
+                                    }
+                                    history_index -= 1;
                                 }
-                                history_index -= 1;
+                                KeyCode::Down if history_index < history.len() => {
+                                    history_index += 1;
+                                }
+                                _ => continue,
                             }
-                            KeyCode::Down if history_index < history.len() => {
-                                history_index += 1;
-                            }
-                            _ => continue,
+                            *user_prompt = history.get(history_index).unwrap_or(&draft).clone();
                         }
-                        *user_prompt = history.get(history_index).unwrap_or(&draft).clone();
                     }
                     (KeyCode::Enter, _) => {
                         if !user_prompt.is_empty() {

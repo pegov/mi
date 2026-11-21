@@ -152,17 +152,17 @@ impl Tui {
         Ok(tui)
     }
 
-    pub fn command_matches(&self) -> (&str, Vec<(&str, &str)>) {
+    pub fn command_matches(&self) -> Vec<(&str, &str)> {
         if !self.accepting_input || self.commands_dismissed || !self.prompt.starts_with('/') {
-            return ("", Vec::new());
+            return Vec::new();
         }
         if let Some((command, arg)) = self.prompt.split_once(char::is_whitespace) {
             let arg = arg.trim_start();
             if arg.contains(char::is_whitespace) {
-                return ("", Vec::new());
+                return Vec::new();
             }
             let prefix = arg.to_ascii_lowercase();
-            let matches = match command {
+            return match command {
                 "/model" | "/m" if self.model_switching => OpenRouterModel::value_variants()
                     .iter()
                     .filter(|model| !matches!(model, OpenRouterModel::None))
@@ -177,16 +177,12 @@ impl Tui {
                     .collect(),
                 _ => Vec::new(),
             };
-            return (command, matches);
         }
-        (
-            "",
-            self.commands
-                .iter()
-                .filter(|(name, _)| name.starts_with(&self.prompt))
-                .map(|(name, description)| (name.as_str(), description.as_str()))
-                .collect(),
-        )
+        self.commands
+            .iter()
+            .filter(|(name, _)| name.starts_with(&self.prompt))
+            .map(|(name, description)| (name.as_str(), description.as_str()))
+            .collect()
     }
 
     pub fn draw(&mut self) -> anyhow::Result<()> {
@@ -218,7 +214,7 @@ impl Tui {
             self.style,
             (self.mode == Mode::Content).then_some(&mut code_delimiter),
         );
-        let (_, matches) = self.command_matches();
+        let matches = self.command_matches();
         let available_height = usize::from(size.height);
         let available_height = available_height - (input.len() + 2).min(available_height);
         let menu_height = if self.accepting_input {
