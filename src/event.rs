@@ -71,17 +71,22 @@ pub fn handle_events(
                     (KeyCode::Esc, _) => {
                         tui.commands_dismissed = true;
                     }
-                    (KeyCode::Up | KeyCode::Down, _) if !tui.command_matches().is_empty() => {
-                        let count = tui.command_matches().len();
+                    (KeyCode::Up | KeyCode::Down, _) if !tui.command_matches().1.is_empty() => {
+                        let count = tui.command_matches().1.len();
                         tui.command_selection = if code == KeyCode::Down {
                             (tui.command_selection + 1) % count
                         } else {
                             (tui.command_selection + count - 1) % count
                         };
                     }
-                    (KeyCode::Tab, _) if !tui.command_matches().is_empty() => {
-                        if let Some((name, _)) = tui.command_matches().get(tui.command_selection) {
-                            *user_prompt = format!("{name} ");
+                    (KeyCode::Tab, _) => {
+                        let (command, matches) = tui.command_matches();
+                        if let Some((name, _)) = matches.get(tui.command_selection) {
+                            *user_prompt = if command.is_empty() {
+                                format!("{name} ")
+                            } else {
+                                format!("{command} {name} ")
+                            };
                         }
                     }
                     (KeyCode::Up | KeyCode::Down, _) => {

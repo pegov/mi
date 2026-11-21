@@ -541,6 +541,7 @@ fn run_chat(
             .to_owned(),
     )?;
 
+    tui.model_switching = opts.model.is_none();
     tui.commands.extend(skills.iter().map(|skill| {
         let mut description = skill
             .description

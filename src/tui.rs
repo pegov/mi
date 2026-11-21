@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use clap::ValueEnum;
 use crossterm::{
     ExecutableCommand, SynchronizedUpdate,
     event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags},
@@ -22,7 +23,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::{chan::SPINNER, printer::Mode};
+use crate::{chan::SPINNER, cmd::OpenRouterModel, printer::Mode};
 
 pub struct Tui {
     pub terminal: DefaultTerminal,
@@ -31,6 +32,7 @@ pub struct Tui {
     pub accepting_input: bool,
     pub activity: Option<&'static str>,
     pub commands: Vec<(String, String)>,
+    pub model_switching: bool,
     pub command_selection: usize,
     pub commands_dismissed: bool,
     started: Instant,
@@ -130,6 +132,7 @@ impl Tui {
             .into_iter()
             .map(|(name, description)| (name.to_owned(), description.to_owned()))
             .collect(),
+            model_switching: false,
             command_selection: 0,
             commands_dismissed: false,
             started: Instant::now(),
@@ -145,18 +148,37 @@ impl Tui {
         Ok(tui)
     }
 
-    pub fn command_matches(&self) -> Vec<&(String, String)> {
-        if !self.accepting_input
-            || self.commands_dismissed
-            || !self.prompt.starts_with('/')
-            || self.prompt.contains(char::is_whitespace)
-        {
-            return Vec::new();
+    pub fn command_matches(&self) -> (&str, Vec<(&str, &str)>) {
+        if !self.accepting_input || self.commands_dismissed || !self.prompt.starts_with('/') {
+            return ("", Vec::new());
         }
-        self.commands
-            .iter()
-            .filter(|(name, _)| name.starts_with(&self.prompt))
-            .collect()
+        if let Some((command, arg)) = self.prompt.split_once(char::is_whitespace) {
+            let arg = arg.trim_start();
+            if self.model_switching
+                && matches!(command, "/model" | "/m")
+                && !arg.contains(char::is_whitespace)
+            {
+                let prefix = arg.to_ascii_lowercase();
+                return (
+                    command,
+                    OpenRouterModel::value_variants()
+                        .iter()
+                        .filter(|model| !matches!(model, OpenRouterModel::None))
+                        .filter(|model| model.as_str().starts_with(&prefix))
+                        .map(|model| (model.as_str(), model.model()))
+                        .collect(),
+                );
+            }
+            return ("", Vec::new());
+        }
+        (
+            "",
+            self.commands
+                .iter()
+                .filter(|(name, _)| name.starts_with(&self.prompt))
+                .map(|(name, description)| (name.as_str(), description.as_str()))
+                .collect(),
+        )
     }
 
     pub fn draw(&mut self) -> anyhow::Result<()> {
@@ -188,11 +210,15 @@ impl Tui {
             self.style,
             (self.mode == Mode::Content).then_some(&mut code_delimiter),
         );
-        let matches = self.command_matches();
+        let (_, matches) = self.command_matches();
         let available_height = usize::from(size.height);
         let available_height = available_height - (input.len() + 2).min(available_height);
         let menu_height = if self.accepting_input {
-            self.commands.len().min(6).min(available_height)
+            self.commands
+                .len()
+                .max(matches.len())
+                .min(6)
+                .min(available_height)
         } else {
             0
         };
