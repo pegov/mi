@@ -19,6 +19,8 @@ pub struct Chat {
     stream: bool,
     #[serde(rename = "messages", serialize_with = "serialize_active_messages")]
     pub session: Session,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<CacheControl>,
 }
 
 impl Chat {
@@ -46,6 +48,7 @@ impl Chat {
             tool_choice: TOOL_CHOICE_AUTO,
             stream: true,
             session,
+            cache_control: cache_control(model),
         }
     }
 
@@ -57,6 +60,7 @@ impl Chat {
         self.model = model.model().into();
         self.providers = providers;
         self.service_tier = model.service_tier();
+        self.cache_control = cache_control(&self.model);
     }
 
     pub fn reasoning(&self) -> &str {
@@ -103,6 +107,18 @@ impl Chat {
         self.session = session;
         Ok(())
     }
+}
+
+#[derive(Serialize)]
+struct CacheControl {
+    #[serde(rename = "type")]
+    type_: &'static str,
+}
+
+fn cache_control(model: &str) -> Option<CacheControl> {
+    model
+        .starts_with("anthropic/")
+        .then_some(CacheControl { type_: "ephemeral" })
 }
 
 fn serialize_active_messages<S>(session: &Session, serializer: S) -> Result<S::Ok, S::Error>

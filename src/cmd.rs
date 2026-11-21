@@ -149,6 +149,9 @@ pub enum OpenRouterModel {
     #[serde(rename = "neon")]
     #[value(name = "neon")]
     Gemini4Neon,
+    #[serde(rename = "opus")]
+    #[value(name = "opus")]
+    AnthropicOpus,
 }
 
 impl OpenRouterModel {
@@ -166,6 +169,7 @@ impl OpenRouterModel {
             Self::Kimi => "kimi",
             Self::MuseEmber => "muse-ember",
             Self::Gemini4Neon => "neon",
+            Self::AnthropicOpus => "opus",
         }
     }
 
@@ -181,6 +185,7 @@ impl OpenRouterModel {
             Self::Kimi => "moonshotai/kimi-k3.1-pro",
             Self::MuseEmber => "meta/muse-ember",
             Self::Gemini4Neon => "google/gemini-4-neon",
+            Self::AnthropicOpus => "anthropic/claude-opus-5.5",
         }
     }
 
@@ -195,6 +200,7 @@ impl OpenRouterModel {
             Self::Kimi => &["moonshotai/mxfp4"],
             Self::MuseEmber => &["meta"],
             Self::Gemini4Neon => &["google-vertex/global"],
+            Self::AnthropicOpus => &["anthropic"],
         }
     }
 
@@ -217,7 +223,8 @@ impl OpenRouterModel {
             | Self::OpenAISol
             | Self::Kimi
             | Self::MuseEmber
-            | Self::Gemini4Neon => None,
+            | Self::Gemini4Neon
+            | Self::AnthropicOpus => None,
         }
     }
 }
