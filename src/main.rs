@@ -1223,7 +1223,8 @@ fn get_model_info(
     let client = client.clone();
     let url = url.to_owned();
     let query_model_id = model_id.to_owned();
-    let (info, endpoints) = tui.run(move |_| -> anyhow::Result<(ModelInfo, Vec<Endpoint>)> {
+    let skip_endpoints = matches!(model, OpenRouterModel::DeepSeek);
+    let (info, endpoints) = tui.run(move |_| {
         let query_url = Url::parse_with_params(&url, &[("q", &query_model_id)])?;
         let response = client.get(query_url).send()?;
         let status = response.status();
@@ -1241,6 +1242,9 @@ fn get_model_info(
             .find(|value| value["id"] == query_model_id)
             .ok_or_else(|| anyhow::anyhow!("model '{query_model_id}' not found"))?;
         let info: ModelInfo = serde_json::from_value(model_value.clone())?;
+        if skip_endpoints {
+            return Ok((info, None));
+        }
 
         let mut endpoints_url = Url::parse(&url)?;
         {
@@ -1261,8 +1265,12 @@ fn get_model_info(
         }
         let body: EndpointsResponse = serde_json::from_str(&body_text)
             .map_err(|e| anyhow::anyhow!("invalid endpoints response: {e} — body: {body_text}"))?;
-        Ok((info, body.data.endpoints))
+        Ok((info, Some(body.data.endpoints)))
     })??;
+
+    let Some(endpoints) = endpoints else {
+        return Ok((info, model.provider()));
+    };
 
     for &provider in model.provider_order() {
         if endpoints
