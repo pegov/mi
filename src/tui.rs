@@ -23,7 +23,11 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 
-use crate::{chan::SPINNER, cmd::OpenRouterModel, printer::Mode};
+use crate::{
+    chan::SPINNER,
+    cmd::{OpenRouterModel, OpenRouterReasoning},
+    printer::Mode,
+};
 
 pub struct Tui {
     pub terminal: DefaultTerminal,
@@ -154,22 +158,26 @@ impl Tui {
         }
         if let Some((command, arg)) = self.prompt.split_once(char::is_whitespace) {
             let arg = arg.trim_start();
-            if self.model_switching
-                && matches!(command, "/model" | "/m")
-                && !arg.contains(char::is_whitespace)
-            {
-                let prefix = arg.to_ascii_lowercase();
-                return (
-                    command,
-                    OpenRouterModel::value_variants()
-                        .iter()
-                        .filter(|model| !matches!(model, OpenRouterModel::None))
-                        .filter(|model| model.as_str().starts_with(&prefix))
-                        .map(|model| (model.as_str(), model.model()))
-                        .collect(),
-                );
+            if arg.contains(char::is_whitespace) {
+                return ("", Vec::new());
             }
-            return ("", Vec::new());
+            let prefix = arg.to_ascii_lowercase();
+            let matches = match command {
+                "/model" | "/m" if self.model_switching => OpenRouterModel::value_variants()
+                    .iter()
+                    .filter(|model| !matches!(model, OpenRouterModel::None))
+                    .filter(|model| model.as_str().starts_with(&prefix))
+                    .map(|model| (model.as_str(), model.model()))
+                    .collect(),
+                "/reasoning" | "/r" => OpenRouterReasoning::value_variants()
+                    .iter()
+                    .map(OpenRouterReasoning::as_str)
+                    .filter(|name| name.starts_with(&prefix))
+                    .map(|name| (name, ""))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            return (command, matches);
         }
         (
             "",
