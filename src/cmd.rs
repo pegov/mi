@@ -45,6 +45,8 @@ pub struct ChatArgs {
     pub resume: bool,
     #[arg(long)]
     pub show_reasoning: bool,
+    #[arg(long, visible_alias = "sto")]
+    pub show_tool_output: bool,
     #[arg(short, long)]
     pub profile: Option<String>,
     #[arg(long, visible_alias = "spp")]

@@ -170,6 +170,7 @@ struct ChatOptions {
     ignore_root_agents_md: bool,
     oneshot: Option<String>,
     show_reasoning: bool,
+    show_tool_output: bool,
     models_url: Option<String>,
     search_base_url: Option<String>,
     rw_tools: bool,
@@ -488,6 +489,7 @@ fn run_chat(
         opts.oneshot,
     );
     let show_reasoning = opts.show_reasoning;
+    let show_tool_output = opts.show_tool_output;
 
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -1050,7 +1052,9 @@ fn run_chat(
                                 }
                             })?
                             .unwrap_or_else(|e| format!("failed to call tool: {e}"));
-                        if !matches!(tool_call.function.as_str(), "search" | "fetch") {
+                        if show_tool_output
+                            && !matches!(tool_call.function.as_str(), "search" | "fetch")
+                        {
                             tui.print(printer::Mode::Content, &result)?;
                         }
                         tui.finish()?;
@@ -1374,6 +1378,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
                 show_reasoning: chat.show_reasoning,
+                show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
                 search_base_url: if chat.with_search {
                     Some(
@@ -1431,6 +1436,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
                 show_reasoning: chat.show_reasoning,
+                show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
                 models_url: Some(format!("{base_url}/models")),
                 search_base_url: chat.with_search.then_some(base_url),
@@ -1482,6 +1488,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
                 show_reasoning: chat.show_reasoning,
+                show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
                 search_base_url: if chat.with_search {
                     Some(
