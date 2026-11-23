@@ -172,6 +172,7 @@ struct ChatOptions {
     show_reasoning: bool,
     models_url: Option<String>,
     search_base_url: Option<String>,
+    rw_tools: bool,
 }
 
 fn compact_instructions(prompt: &str) -> Option<&str> {
@@ -513,13 +514,18 @@ fn run_chat(
         .timeout(Duration::from_secs(600))
         .build()?;
 
-    let mut tool_registry = make_tools![
-        tool::Read,
-        tool::Tail,
-        tool::WriteTool,
-        tool::EditTool,
-        tool::BashTool::new(300, 300),
-    ];
+    let bash_tool = tool::BashTool::new(300, 300);
+    let mut tool_registry = if opts.rw_tools {
+        make_tools![
+            bash_tool,
+            tool::Read,
+            tool::Tail,
+            tool::WriteTool,
+            tool::EditTool
+        ]
+    } else {
+        make_tools![bash_tool]
+    };
     if let Some(base_url) = opts.search_base_url {
         tool_registry.push(Box::new(tool::SearchTool {
             base_url: base_url.clone(),
@@ -1368,6 +1374,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
                 show_reasoning: chat.show_reasoning,
+                rw_tools: chat.rw_tools,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {
@@ -1424,6 +1431,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
                 show_reasoning: chat.show_reasoning,
+                rw_tools: chat.rw_tools,
                 models_url: Some(format!("{base_url}/models")),
                 search_base_url: chat.with_search.then_some(base_url),
             };
@@ -1474,6 +1482,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 ignore_root_agents_md: chat.ignore_root_agents_md,
                 oneshot: chat.oneshot,
                 show_reasoning: chat.show_reasoning,
+                rw_tools: chat.rw_tools,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {

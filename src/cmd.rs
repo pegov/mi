@@ -30,6 +30,8 @@ pub struct Cli {
 pub struct ChatArgs {
     #[arg(short = 's', long, help = "Enable web search and fetch tools")]
     pub with_search: bool,
+    #[arg(long, visible_alias = "rwt", help = "Enable read/write/edit tools")]
+    pub rw_tools: bool,
     #[arg(
         long,
         value_enum,
