@@ -488,8 +488,8 @@ fn run_chat(
         opts.ignore_root_agents_md,
         opts.oneshot,
     );
-    let show_reasoning = opts.show_reasoning;
-    let show_tool_output = opts.show_tool_output;
+    let mut show_reasoning = opts.show_reasoning;
+    let mut show_tool_output = opts.show_tool_output;
 
     let mut session = if let Some(credits_gateway) = credits_gateway {
         let credits = credits::get_credits(credits_gateway)?;
@@ -717,6 +717,22 @@ fn run_chat(
                 }
                 Err(_) => tui.write(&format!("unknown reasoning level: {arg}\n"))?,
             }
+            if oneshot.is_some() {
+                break;
+            }
+            continue;
+        }
+        if matches!(word, "/show-reasoning" | "/sr") {
+            show_reasoning = !show_reasoning;
+            tui.write(&format!("show-reasoning: {show_reasoning}\n"))?;
+            if oneshot.is_some() {
+                break;
+            }
+            continue;
+        }
+        if matches!(word, "/show-tool-output" | "/sto") {
+            show_tool_output = !show_tool_output;
+            tui.write(&format!("show-tool-output: {show_tool_output}\n"))?;
             if oneshot.is_some() {
                 break;
             }

@@ -132,6 +132,8 @@ impl Tui {
                 ("/reasoning", "Change reasoning level (/r)"),
                 ("/new", "Start a new session"),
                 ("/compact", "Compact conversation context"),
+                ("/show-reasoning", "Toggle reasoning output (/sr)"),
+                ("/show-tool-output", "Toggle tool output (/sto)"),
             ]
             .into_iter()
             .map(|(name, description)| (name.to_owned(), description.to_owned()))
