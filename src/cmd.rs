@@ -72,7 +72,7 @@ pub enum OpenCodeModel {
     Kimi,
     #[value(name = "gpt-6-luna", alias = "luna")]
     Luna,
-    #[value(name = "qwen4-max", alias = "qwen4")]
+    #[value(name = "qwen4-max", alias = "qwen")]
     Qwen4,
 }
 
