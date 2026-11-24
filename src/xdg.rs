@@ -15,7 +15,15 @@ pub struct Config {
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
     #[serde(default)]
+    pub projects: HashMap<String, ProjectConfig>,
+    #[serde(default)]
     pub compaction: Option<CompactionConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProjectConfig {
+    pub paths: Vec<PathBuf>,
+    pub profiles: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -73,7 +81,23 @@ impl Config {
                 );
                 profile.clone()
             }
-            None => Profile::default(),
+            None => {
+                let mut merged = Profile::default();
+                let cwd = env::current_dir()?;
+                for project in self.projects.values().filter(|p| p.paths.contains(&cwd)) {
+                    for name in &project.profiles {
+                        let profile = self.load_profile(Some(name), Vec::new())?;
+                        merged.spp.extend(profile.spp);
+                        if profile.model.is_some() {
+                            merged.model = profile.model;
+                        }
+                        if profile.reasoning.is_some() {
+                            merged.reasoning = profile.reasoning;
+                        }
+                    }
+                }
+                merged
+            }
         };
         profile.spp.extend(cli_spp);
         Ok(profile)
