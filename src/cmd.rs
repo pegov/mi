@@ -81,6 +81,7 @@ pub enum OpenCodeReasoning {
     None,
     #[default]
     Low,
+    Medium,
     High,
     Max,
 }
@@ -90,6 +91,7 @@ impl OpenCodeReasoning {
         match self {
             Self::None => "none",
             Self::Low => "low",
+            Self::Medium => "medium",
             Self::High => "high",
             Self::Max => "max",
         }
