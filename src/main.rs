@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use crossterm::{ExecutableCommand, event::DisableBracketedPaste, terminal::disable_raw_mode};
 use reqwest::Url;
 use serde::Deserialize;
@@ -32,7 +32,7 @@ mod xdg;
 
 use crate::{
     assembler::Assembler,
-    cmd::{Cli, OpenRouterModel, OpenRouterReasoning},
+    cmd::{Cli, OpenCodeModel, OpenCodeReasoning, OpenRouterModel, OpenRouterReasoning},
     completions::{Answer, FinishReason},
     event::{HandleEventsAction, handle_events},
     mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
@@ -165,6 +165,7 @@ fn build_system_prompt(
 
 struct ChatOptions {
     model: Option<&'static str>,
+    opencode: bool,
     resume: bool,
     disable_default_system_prompt: bool,
     ignore_root_agents_md: bool,
@@ -299,10 +300,9 @@ fn compact(
             request["max_tokens"] = serde_json::json!(max_tokens);
 
             let (tx, rx) = mpsc::channel();
-            let client = client.clone();
-            let url = url.to_owned();
+            let request = chat.request(client, url).json(&request);
             thread::spawn(move || {
-                let _ = tx.send(compaction::request_summary(&client, &url, &request));
+                let _ = tx.send(compaction::request_summary(request));
             });
             let result = match tui.recv(&rx) {
                 Ok(Some(result)) => result,
@@ -473,7 +473,7 @@ fn auto_compact(
 #[allow(clippy::too_many_arguments)]
 fn run_chat(
     model: OpenRouterModel,
-    reasoning_effort: OpenRouterReasoning,
+    reasoning_effort: &'static str,
     mut max_context: Option<u64>,
     mut output_limit: Option<u64>,
     compaction_config: Option<CompactionConfig>,
@@ -550,6 +550,7 @@ fn run_chat(
     )?;
 
     tui.model_switching = opts.model.is_none();
+    tui.opencode = opts.opencode;
     tui.commands.extend(skills.iter().map(|skill| {
         let mut description = skill
             .description
@@ -564,13 +565,17 @@ fn run_chat(
     }));
 
     tui.write(&draw_banner("NEW SESSION STARTED"))?;
-    let mut providers = model.provider();
+    let mut providers = if opts.opencode {
+        serde_json::Value::Null
+    } else {
+        model.provider()
+    };
     let mut model_modalities = None;
     if let Some(url) = &opts.models_url {
         if let Some(model_id) = opts.model {
             let client = client.clone();
             let url = url.clone();
-            let info = tui.run(move |_| -> anyhow::Result<DeepSeekModelInfo> {
+            let model_data = tui.run(move |_| -> anyhow::Result<serde_json::Value> {
                 let response = client.get(&url).send()?;
                 let status = response.status();
                 let body_text = response.text()?;
@@ -586,14 +591,21 @@ fn run_chat(
                     .iter()
                     .find(|value| value["id"] == model_id)
                     .ok_or_else(|| anyhow::anyhow!("model '{model_id}' not found"))?;
-                Ok(serde_json::from_value(value.clone())?)
+                Ok(value.clone())
             })??;
-            max_context = info.context_window.filter(|&tokens| tokens > 0);
-            output_limit = info.max_output_tokens.filter(|&tokens| tokens > 0);
-            if !info.architecture.input_modalities.is_empty()
-                && !info.architecture.output_modalities.is_empty()
-            {
-                model_modalities = Some(info.architecture.to_status());
+            if opts.opencode {
+                let info: OpenCodeModelInfo = serde_json::from_value(model_data)?;
+                max_context = info.limit.context.filter(|&tokens| tokens > 0);
+                output_limit = info.limit.output.filter(|&tokens| tokens > 0);
+            } else {
+                let info: DeepSeekModelInfo = serde_json::from_value(model_data)?;
+                max_context = info.context_window.filter(|&tokens| tokens > 0);
+                output_limit = info.max_output_tokens.filter(|&tokens| tokens > 0);
+                if !info.architecture.input_modalities.is_empty()
+                    && !info.architecture.output_modalities.is_empty()
+                {
+                    model_modalities = Some(info.architecture.to_status());
+                }
             }
         } else {
             let (info, selected_providers) = get_model_info(&client, url, &model, &mut tui)?;
@@ -624,6 +636,11 @@ fn run_chat(
     );
     if resume {
         chat.resume()?;
+    }
+    if opts.opencode {
+        chat.session
+            .opencode_session
+            .get_or_insert_with(|| uuid::Uuid::new_v4().to_string());
     }
     macro_rules! status {
         () => {
@@ -709,7 +726,13 @@ fn run_chat(
             continue;
         }
         if matches!(word, "/reasoning" | "/r") {
-            match arg.parse::<OpenRouterReasoning>() {
+            let reasoning = if opts.opencode {
+                OpenCodeReasoning::from_str(arg, true).map(|level| level.as_str())
+            } else {
+                arg.parse::<OpenRouterReasoning>()
+                    .map(|level| level.as_str())
+            };
+            match reasoning {
                 Ok(reasoning) => {
                     chat.set_reasoning(reasoning);
                     status!();
@@ -740,6 +763,9 @@ fn run_chat(
         }
         if user_prompt.trim() == "/new" {
             chat.session = chat::Session::new_system(&system_prompt);
+            if opts.opencode {
+                chat.session.opencode_session = Some(uuid::Uuid::new_v4().to_string());
+            }
             chat.save_session()?;
             session = credits::Session {
                 currency: session.currency,
@@ -812,7 +838,7 @@ fn run_chat(
 
                 let mut a = Assembler::default();
 
-                let request = client.post(chat_gateway).json(&chat).build()?;
+                let request = chat.request(&client, chat_gateway).json(&chat).build()?;
                 let thread_client = client.clone();
                 let (tx, rx) = mpsc::channel();
                 thread::spawn(move || {
@@ -1164,6 +1190,17 @@ fn run_chat(
 }
 
 #[derive(Deserialize)]
+struct OpenCodeModelInfo {
+    limit: OpenCodeModelLimits,
+}
+
+#[derive(Deserialize)]
+struct OpenCodeModelLimits {
+    context: Option<u64>,
+    output: Option<u64>,
+}
+
+#[derive(Deserialize)]
 struct DeepSeekModelInfo {
     context_window: Option<u64>,
     max_output_tokens: Option<u64>,
@@ -1388,6 +1425,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let chat_completions_url = format!("{base_url}/chat/completions");
 
             let opts = ChatOptions {
+                opencode: false,
                 model: None,
                 resume: chat.resume,
                 disable_default_system_prompt: chat.disable_default_system_prompt,
@@ -1416,8 +1454,86 @@ fn start(cli: Cli) -> anyhow::Result<()> {
 
             run_chat(
                 OpenRouterModel::None,
-                OpenRouterReasoning::None,
+                OpenRouterReasoning::None.as_str(),
                 config.local.context_window,
+                None,
+                config.compaction,
+                None,
+                &chat_completions_url,
+                &profile.spp,
+                opts,
+            )?;
+        }
+        cmd::Command::OpenCode {
+            model,
+            reasoning,
+            chat,
+        } => {
+            let profile =
+                config.load_profile(chat.profile.as_deref(), chat.system_prompt_preset)?;
+            let base_url = config
+                .opencode
+                .ok_or_else(|| {
+                    anyhow::anyhow!("opencode requires opencode.base_url in config.json")
+                })?
+                .base_url;
+            let base_url = base_url.trim_end_matches('/');
+            let chat_completions_url = format!("{base_url}/v1/chat/completions");
+            let model = match model {
+                OpenCodeModel::DeepSeekFlash => "deepseek-v4.1-flash",
+                OpenCodeModel::Glm => "glm-5.3",
+                OpenCodeModel::Kimi => "kimi-k3.1-pro",
+                OpenCodeModel::Luna => "gpt-6-luna",
+                OpenCodeModel::Qwen4 => "qwen4-max",
+            };
+            let reasoning = match reasoning {
+                Some(level) => level,
+                None => profile
+                    .reasoning
+                    .map(|level| OpenCodeReasoning::from_str(level.as_str(), true))
+                    .transpose()
+                    .map_err(|error| {
+                        anyhow::anyhow!("invalid OpenCode profile reasoning: {error}")
+                    })?
+                    .unwrap_or_default(),
+            };
+            println!(
+                "OpenCode Go | model: {model} | reasoning: {}",
+                reasoning.as_str()
+            );
+
+            let opts = ChatOptions {
+                opencode: true,
+                model: Some(model),
+                resume: chat.resume,
+                disable_default_system_prompt: chat.disable_default_system_prompt,
+                ignore_root_agents_md: chat.ignore_root_agents_md,
+                oneshot: chat.oneshot,
+                show_reasoning: chat.show_reasoning,
+                show_tool_output: chat.show_tool_output,
+                rw_tools: chat.rw_tools,
+                search_base_url: if chat.with_search {
+                    Some(
+                        match chat.search_provider {
+                            cmd::SearchProvider::Deepseek => config.deepseek,
+                        }
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--with-search requires deepseek.base_url in config.json"
+                            )
+                        })?
+                        .base_url,
+                    )
+                } else {
+                    None
+                },
+                models_url: Some(format!("{base_url}/v1/models")),
+            };
+
+            run_chat(
+                OpenRouterModel::None,
+                reasoning.as_str(),
+                None,
                 None,
                 config.compaction,
                 None,
@@ -1446,6 +1562,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             );
 
             let opts = ChatOptions {
+                opencode: false,
                 model: Some("deepseek-flash"),
                 resume: chat.resume,
                 disable_default_system_prompt: chat.disable_default_system_prompt,
@@ -1460,7 +1577,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
 
             run_chat(
                 OpenRouterModel::None,
-                reasoning,
+                reasoning.as_str(),
                 None,
                 None,
                 config.compaction,
@@ -1498,6 +1615,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             }
 
             let opts = ChatOptions {
+                opencode: false,
                 model: None,
                 resume: chat.resume,
                 disable_default_system_prompt: chat.disable_default_system_prompt,
@@ -1526,7 +1644,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
 
             run_chat(
                 model,
-                reasoning,
+                reasoning.as_str(),
                 None,
                 None,
                 config.compaction,

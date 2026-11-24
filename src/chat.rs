@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-use crate::{assembler, cmd::OpenRouterReasoning, compaction, xdg::get_session_path};
+use crate::{assembler, compaction, xdg::get_session_path};
 
 const TOOL_CHOICE_AUTO: &str = "auto";
 const SESSION_VERSION: u32 = 1;
@@ -9,9 +9,11 @@ const SESSION_VERSION: u32 = 1;
 #[derive(Serialize)]
 pub struct Chat {
     model: String,
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
     providers: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     service_tier: Option<&'static str>,
+    #[serde(flatten)]
     reasoning: Reasoning,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<serde_json::Value>,
@@ -28,26 +30,28 @@ impl Chat {
         model: &str,
         providers: serde_json::Value,
         service_tier: Option<&'static str>,
-        reasoning_effort: OpenRouterReasoning,
+        reasoning_effort: &'static str,
         tools: Vec<serde_json::Value>,
         system: &str,
     ) -> Self {
-        let session = Session {
-            version: SESSION_VERSION,
-            messages: vec![Message::System(SimpleMessage::new(system))],
-            compactions: vec![],
-            omitted: vec![],
+        let reasoning = if providers.is_null() {
+            Reasoning::OpenCode { reasoning_effort }
+        } else {
+            Reasoning::Other {
+                reasoning: Effort {
+                    effort: reasoning_effort,
+                },
+            }
         };
-
         Self {
             model: model.into(),
             providers,
             service_tier,
-            reasoning: Reasoning::new(reasoning_effort),
+            reasoning,
             tools,
             tool_choice: TOOL_CHOICE_AUTO,
             stream: true,
-            session,
+            session: Session::new_system(system),
             cache_control: cache_control(model),
         }
     }
@@ -64,11 +68,17 @@ impl Chat {
     }
 
     pub fn reasoning(&self) -> &str {
-        self.reasoning.effort.as_str()
+        match &self.reasoning {
+            Reasoning::OpenCode { reasoning_effort } => reasoning_effort,
+            Reasoning::Other { reasoning } => reasoning.effort,
+        }
     }
 
-    pub fn set_reasoning(&mut self, effort: OpenRouterReasoning) {
-        self.reasoning = Reasoning::new(effort);
+    pub fn set_reasoning(&mut self, effort: &'static str) {
+        match &mut self.reasoning {
+            Reasoning::OpenCode { reasoning_effort } => *reasoning_effort = effort,
+            Reasoning::Other { reasoning } => reasoning.effort = effort,
+        }
     }
 
     pub fn providers(&self) -> &serde_json::Value {
@@ -77,6 +87,21 @@ impl Chat {
 
     pub fn service_tier(&self) -> Option<&'static str> {
         self.service_tier
+    }
+
+    pub fn request(
+        &self,
+        client: &reqwest::blocking::Client,
+        url: &str,
+    ) -> reqwest::blocking::RequestBuilder {
+        let request = client.post(url);
+        if self.providers.is_null()
+            && let Some(id) = &self.session.opencode_session
+        {
+            request.header("X-Opencode-Session", id)
+        } else {
+            request
+        }
     }
 
     pub fn save_session(&self) -> anyhow::Result<()> {
@@ -99,6 +124,7 @@ impl Chat {
                 messages: serde_json::from_value(value)?,
                 compactions: vec![],
                 omitted: vec![],
+                opencode_session: None,
             }
         } else {
             serde_json::from_value(value)?
@@ -136,6 +162,8 @@ pub struct Session {
     pub compactions: Vec<Compaction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub omitted: Vec<(usize, usize)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opencode_session: Option<String>,
 }
 
 impl Session {
@@ -145,6 +173,7 @@ impl Session {
             messages: vec![Message::System(SimpleMessage::new(system))],
             compactions: vec![],
             omitted: vec![],
+            opencode_session: None,
         }
     }
 
@@ -304,14 +333,15 @@ pub struct Compaction {
 }
 
 #[derive(Serialize)]
-pub struct Reasoning {
-    effort: OpenRouterReasoning,
+#[serde(untagged)]
+enum Reasoning {
+    OpenCode { reasoning_effort: &'static str },
+    Other { reasoning: Effort },
 }
 
-impl Reasoning {
-    fn new(effort: OpenRouterReasoning) -> Self {
-        Self { effort }
-    }
+#[derive(Serialize)]
+struct Effort {
+    effort: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

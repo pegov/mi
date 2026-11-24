@@ -25,7 +25,7 @@ use ratatui::{
 
 use crate::{
     chan::SPINNER,
-    cmd::{OpenRouterModel, OpenRouterReasoning},
+    cmd::{OpenCodeReasoning, OpenRouterModel, OpenRouterReasoning},
     printer::Mode,
 };
 
@@ -37,6 +37,7 @@ pub struct Tui {
     pub activity: Option<&'static str>,
     pub commands: Vec<(String, String)>,
     pub model_switching: bool,
+    pub opencode: bool,
     pub command_selection: usize,
     pub commands_dismissed: bool,
     started: Instant,
@@ -139,6 +140,7 @@ impl Tui {
             .map(|(name, description)| (name.to_owned(), description.to_owned()))
             .collect(),
             model_switching: false,
+            opencode: false,
             command_selection: 0,
             commands_dismissed: false,
             started: Instant::now(),
@@ -170,6 +172,12 @@ impl Tui {
                     .filter(|model| !matches!(model, OpenRouterModel::None))
                     .filter(|model| model.as_str().starts_with(&prefix))
                     .map(|model| (model.as_str(), model.model()))
+                    .collect(),
+                "/reasoning" | "/r" if self.opencode => OpenCodeReasoning::value_variants()
+                    .iter()
+                    .map(OpenCodeReasoning::as_str)
+                    .filter(|name| name.starts_with(&prefix))
+                    .map(|name| (name, ""))
                     .collect(),
                 "/reasoning" | "/r" => OpenRouterReasoning::value_variants()
                     .iter()

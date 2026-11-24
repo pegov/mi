@@ -17,6 +17,7 @@ similar = "3.2.0"
 tempfile = "3.27.0"
 time = { version = "0.3.55", features = ["formatting", "macros"] }
 walkdir = "2.5.0"
+uuid = { version = "1.29.3", features = ["v4"] }
 
 rmcp = {
   version = "3.5.1",

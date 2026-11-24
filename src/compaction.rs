@@ -415,16 +415,10 @@ pub enum SummaryFailure {
     Empty,
 }
 
-pub fn request_summary(
-    client: &reqwest::blocking::Client,
-    url: &str,
-    request: &serde_json::Value,
-) -> SummaryOutcome {
+pub fn request_summary(request: reqwest::blocking::RequestBuilder) -> SummaryOutcome {
     let mut usage = None;
     let text = (|| {
-        let response = client
-            .post(url)
-            .json(request)
+        let response = request
             .send()
             .map_err(|error| SummaryFailure::Error(error.to_string()))?;
         let status = response.status();
@@ -513,10 +507,12 @@ pub fn summary_request(
 ) -> serde_json::Value {
     let mut request = serde_json::json!({
         "model": model,
-        "providers": providers,
         "messages": [{ "role": "user", "content": prompt }],
         "stream": false,
     });
+    if !providers.is_null() {
+        request["providers"] = providers.clone();
+    }
     if let Some(service_tier) = service_tier {
         request["service_tier"] = serde_json::Value::String(service_tier.into());
     }
@@ -675,7 +671,8 @@ mod tests {
                 let body = body.to_string();
                 write!(socket, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             });
-            let outcome = request_summary(&reqwest::blocking::Client::new(), &url, &json!({}));
+            let outcome =
+                request_summary(reqwest::blocking::Client::new().post(&url).json(&json!({})));
             assert_eq!(outcome.text.is_ok(), accepted);
             assert_eq!(outcome.usage.unwrap().total_tokens, 15);
             server.join().unwrap();

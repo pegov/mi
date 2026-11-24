@@ -62,6 +62,40 @@ pub enum SearchProvider {
     Deepseek,
 }
 
+#[derive(Clone, Debug, ValueEnum)]
+pub enum OpenCodeModel {
+    #[value(name = "deepseek-v4.1-flash", alias = "deepseek")]
+    DeepSeekFlash,
+    #[value(name = "glm-5.3", alias = "glm")]
+    Glm,
+    #[value(name = "kimi-k3.1-pro", alias = "kimi")]
+    Kimi,
+    #[value(name = "gpt-6-luna", alias = "luna")]
+    Luna,
+    #[value(name = "qwen4-max", alias = "qwen4")]
+    Qwen4,
+}
+
+#[derive(Clone, Debug, Default, ValueEnum)]
+pub enum OpenCodeReasoning {
+    None,
+    #[default]
+    Low,
+    High,
+    Max,
+}
+
+impl OpenCodeReasoning {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::High => "high",
+            Self::Max => "max",
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Local {
@@ -72,6 +106,15 @@ pub enum Command {
     DeepSeek {
         #[arg(short, long, value_enum)]
         reasoning: Option<OpenRouterReasoning>,
+        #[command(flatten)]
+        chat: ChatArgs,
+    },
+    #[command(name = "opencode", visible_alias = "oc")]
+    OpenCode {
+        #[arg(short, long, value_enum, default_value = "deepseek-v4.1-flash")]
+        model: OpenCodeModel,
+        #[arg(short, long, visible_alias = "r", value_enum)]
+        reasoning: Option<OpenCodeReasoning>,
         #[command(flatten)]
         chat: ChatArgs,
     },
@@ -267,7 +310,7 @@ impl std::str::FromStr for OpenRouterReasoning {
 }
 
 impl OpenRouterReasoning {
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match *self {
             Self::None => "none",
             Self::Low => "low",

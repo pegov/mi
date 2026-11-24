@@ -10,6 +10,7 @@ pub struct Config {
     pub local: LocalConfig,
     pub openrouter: ApiConfig,
     pub deepseek: Option<ApiConfig>,
+    pub opencode: Option<ApiConfig>,
     pub jev: JevConfig,
     #[serde(default)]
     pub profiles: HashMap<String, Profile>,
