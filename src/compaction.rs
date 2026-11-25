@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::{
     chat::{Message, Session},
-    completions::Usage,
+    responses::{self, Response, Status, Usage},
     xdg::CompactionConfig,
 };
 
@@ -425,9 +425,9 @@ pub fn request_summary(request: reqwest::blocking::RequestBuilder) -> SummaryOut
         let body = response
             .text()
             .map_err(|error| SummaryFailure::Error(error.to_string()))?;
-        let parsed = serde_json::from_str::<serde_json::Value>(&body);
-        if let Ok(value) = &parsed {
-            usage = serde_json::from_value(value["usage"].clone()).ok();
+        let mut parsed = serde_json::from_str::<Response>(&body);
+        if let Ok(response) = &mut parsed {
+            usage = response.usage.take();
         }
         if !status.is_success() {
             if is_context_overflow(status, &body) {
@@ -435,39 +435,32 @@ pub fn request_summary(request: reqwest::blocking::RequestBuilder) -> SummaryOut
             }
             return Err(SummaryFailure::Error(format!("API {status} error: {body}")));
         }
-        let value =
+        let response =
             parsed.map_err(|error| SummaryFailure::Error(format!("invalid JSON: {error}")))?;
-        if !value["error"].is_null() {
-            if is_overflow_message(&value["error"].to_string()) {
+        if let Some(error) = response.error {
+            let message = error.to_string();
+            if is_overflow_message(&message) {
                 return Err(SummaryFailure::Overflow);
             }
+            return Err(SummaryFailure::Error(format!("API error: {message}")));
+        }
+        if response.status != Some(Status::Completed) {
             return Err(SummaryFailure::Error(format!(
-                "API error: {}",
-                value["error"]
+                "summary ended with status {:?}: {}",
+                response.status,
+                response
+                    .incomplete_details
+                    .as_ref()
+                    .map_or("no details", |details| details.reason.as_str()),
             )));
         }
-        let choice = &value["choices"][0];
-        if choice["finish_reason"].as_str() != Some("stop")
-            || choice["native_finish_reason"]
-                .as_str()
-                .is_some_and(|reason| {
-                    matches!(
-                        reason,
-                        "length" | "max_tokens" | "MAX_TOKENS" | "error" | "content_filter"
-                    )
-                })
-            || !choice["error"].is_null()
-        {
-            return Err(SummaryFailure::Error(format!(
-                "summary did not finish successfully: {}",
-                choice
-            )));
-        }
-        let text = choice["message"]["content"].as_str().unwrap_or_default();
-        if text.trim().is_empty() {
-            return Err(SummaryFailure::Empty);
-        }
-        Ok(text.to_owned())
+        let text = response
+            .output
+            .as_deref()
+            .and_then(|items| responses::output_text(items, false))
+            .filter(|text| !text.trim().is_empty())
+            .ok_or(SummaryFailure::Empty)?;
+        Ok(text)
     })();
     SummaryOutcome { text, usage }
 }
@@ -479,7 +472,7 @@ pub fn is_context_overflow(status: reqwest::StatusCode, body: &str) -> bool {
     {
         return false;
     }
-    is_overflow_message(&body.to_lowercase())
+    is_overflow_message(body)
 }
 
 pub fn is_overflow_message(message: &str) -> bool {
@@ -497,26 +490,6 @@ pub fn is_overflow_message(message: &str) -> bool {
                 || lower.contains("too large")
                 || lower.contains("maximum")))
         || ((lower.contains("prompt") || lower.contains("input")) && lower.contains("too long"))
-}
-
-pub fn summary_request(
-    model: &str,
-    providers: &serde_json::Value,
-    service_tier: Option<&str>,
-    prompt: &str,
-) -> serde_json::Value {
-    let mut request = serde_json::json!({
-        "model": model,
-        "messages": [{ "role": "user", "content": prompt }],
-        "stream": false,
-    });
-    if !providers.is_null() {
-        request["providers"] = providers.clone();
-    }
-    if let Some(service_tier) = service_tier {
-        request["service_tier"] = serde_json::Value::String(service_tier.into());
-    }
-    request
 }
 
 #[cfg(test)]
@@ -608,26 +581,26 @@ mod tests {
 
     #[test]
     fn summary_termination_and_failure_usage() {
-        let usage = json!({"prompt_tokens":12,"completion_tokens":3,"total_tokens":15,"cost":0.5});
+        let usage = json!({"input_tokens":12,"output_tokens":3,"total_tokens":15,"cost":0.5});
         for (status, body, accepted) in [
             (
                 "200 OK",
-                json!({"choices":[{"finish_reason":"stop","message":{"content":"summary"}}],"usage":usage}),
+                json!({"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"summary"}]}],"usage":usage}),
                 true,
             ),
             (
                 "200 OK",
-                json!({"choices":[{"finish_reason":"length","message":{"content":"partial"}}],"usage":usage}),
+                json!({"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}],"usage":usage}),
                 false,
             ),
             (
                 "200 OK",
-                json!({"choices":[{"finish_reason":"content_filter","message":{"content":"filtered"}}],"usage":usage}),
+                json!({"status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"filtered"}]}],"usage":usage}),
                 false,
             ),
             (
                 "200 OK",
-                json!({"choices":[{"finish_reason":"stop","message":{"content":""}}],"usage":usage}),
+                json!({"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]}],"usage":usage}),
                 false,
             ),
             (
@@ -773,14 +746,14 @@ mod tests {
 
     #[test]
     fn usage_aggregation_and_late_cancelled_usage() {
-        let usage: Usage = serde_json::from_value(json!({"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"cost":0.25,"prompt_tokens_details":{"cached_tokens":3}})).unwrap();
+        let usage: Usage = serde_json::from_value(json!({"input_tokens":10,"output_tokens":2,"total_tokens":12,"cost":0.25,"input_tokens_details":{"cached_tokens":3}})).unwrap();
         let mut total = None;
         Usage::accumulate(&mut total, &usage);
         Usage::accumulate(&mut total, &usage);
         let total = total.unwrap();
         assert_eq!(total.total_tokens, 24);
         assert_eq!(total.cost, Some(0.5));
-        assert_eq!(total.prompt_tokens_details.cached_tokens, 6);
+        assert_eq!(total.input_tokens_details.cached_tokens, 6);
         let mut billing = crate::credits::Session::default();
         let (tx, rx) = std::sync::mpsc::channel();
         billing.pending_summaries.push(rx);

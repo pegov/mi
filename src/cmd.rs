@@ -253,11 +253,15 @@ impl OpenRouterModel {
         }
     }
 
-    pub fn provider(&self) -> serde_json::Value {
-        serde_json::json!({
-            "order": self.provider_order(),
-            "allow_fallbacks": false,
-        })
+    pub fn provider(&self) -> crate::responses::ProviderPreferences {
+        crate::responses::ProviderPreferences {
+            order: self
+                .provider_order()
+                .iter()
+                .map(|&name| name.to_owned())
+                .collect(),
+            allow_fallbacks: false,
+        }
     }
 
     pub fn service_tier(&self) -> Option<&'static str> {

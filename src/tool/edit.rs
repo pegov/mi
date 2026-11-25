@@ -25,31 +25,30 @@ impl Tool for EditTool {
         serde_json::json! {
             {
                 "type": "function",
-                "function": {
-                    "name": "edit",
-                    "description": "Replace an exact string in a file. The `old_string` must match a byte sequence in the file exactly once unless `replace_all` is true. Returns a diff of the change.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "path to the file"
-                            },
-                            "old_string": {
-                                "type": "string",
-                                "description": "Exact text to find. Must be unique unless replace_all is set."
-                            },
-                            "new_string": {
-                                "type": "string",
-                                "description": "replacement text"
-                            },
-                            "replace_all": {
-                                "type": "boolean",
-                                "description": "replace every occurrence instead of requiring uniqueness"
-                            },
+                "strict": false,
+                "name": "edit",
+                "description": "Replace an exact string in a file. The `old_string` must match a byte sequence in the file exactly once unless `replace_all` is true. Returns a diff of the change.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "path to the file"
                         },
-                        "required": ["path", "old_string", "new_string"]
-                    }
+                        "old_string": {
+                            "type": "string",
+                            "description": "Exact text to find. Must be unique unless replace_all is set."
+                        },
+                        "new_string": {
+                            "type": "string",
+                            "description": "replacement text"
+                        },
+                        "replace_all": {
+                            "type": "boolean",
+                            "description": "replace every occurrence instead of requiring uniqueness"
+                        },
+                    },
+                    "required": ["path", "old_string", "new_string"]
                 }
             }
         }

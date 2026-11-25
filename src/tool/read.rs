@@ -23,31 +23,30 @@ impl Tool for Read {
         serde_json::json! {
             {
                 "type": "function",
-                "function": {
-                    "name": "read",
-                    "description": "read file by path (relative or absolute)",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "path to the file"
-                            },
-                            "from_line": {
-                                "type": "integer",
-                                "description": "first line to read (1-based, inclusive)"
-                            },
-                            "to_line": {
-                                "type": "integer",
-                                "description": "last line to read (1-based, inclusive)"
-                            },
-                            "show_line_numbers": {
-                                "type": "boolean",
-                                "description": "show line numbers"
-                            }
+                "strict": false,
+                "name": "read",
+                "description": "read file by path (relative or absolute)",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "path to the file"
                         },
-                        "required": ["path"]
-                    }
+                        "from_line": {
+                            "type": "integer",
+                            "description": "first line to read (1-based, inclusive)"
+                        },
+                        "to_line": {
+                            "type": "integer",
+                            "description": "last line to read (1-based, inclusive)"
+                        },
+                        "show_line_numbers": {
+                            "type": "boolean",
+                            "description": "show line numbers"
+                        }
+                    },
+                    "required": ["path"]
                 }
             }
         }

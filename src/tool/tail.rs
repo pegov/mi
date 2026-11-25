@@ -22,27 +22,26 @@ impl Tool for Tail {
         serde_json::json! {
             {
                 "type": "function",
-                "function": {
-                    "name": "tail",
-                    "description": "read the end of a file",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "path to the file"
-                            },
-                            "lines": {
-                                "type": "integer",
-                                "description": "number of lines (default 10)"
-                            },
-                            "show_line_numbers": {
-                                "type": "boolean",
-                                "description": "show line numbers"
-                            }
+                "strict": false,
+                "name": "tail",
+                "description": "read the end of a file",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "path to the file"
                         },
-                        "required": ["path"]
-                    }
+                        "lines": {
+                            "type": "integer",
+                            "description": "number of lines (default 10)"
+                        },
+                        "show_line_numbers": {
+                            "type": "boolean",
+                            "description": "show line numbers"
+                        }
+                    },
+                    "required": ["path"]
                 }
             }
         }

@@ -68,11 +68,11 @@ impl Session {
         (tokens as f64 * self.context_ratio.max(1.0)).ceil() as u64
     }
 
-    pub fn save_usage(&mut self, usage: &crate::completions::Usage) {
+    pub fn save_usage(&mut self, usage: &crate::responses::Usage) {
         self.save_tokens(
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.prompt_tokens_details.cached_tokens,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.input_tokens_details.cached_tokens,
         );
         if let Some(cost) = usage.cost {
             self.save_cost(cost);

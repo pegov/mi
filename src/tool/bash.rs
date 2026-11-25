@@ -43,27 +43,26 @@ impl Tool for BashTool {
         serde_json::json! {
             {
                 "type": "function",
-                "function": {
-                    "name": "bash",
-                    "description": "Run a shell command via `bash -c ...`. Returns combined stdout+stderr plus exit code. If the output is too long, it will save full output to temp file and leave a mark `|Omitted N lines(s)|` in the result, use `read` tool to read it if you need to.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "type": "string",
-                                "description": "shell command to run"
-                            },
-                            "cwd": {
-                                "type": "string",
-                                "description": "Working directory to run the command in. Omitted or empty uses the current directory"
-                            },
-                            "timeout": {
-                                "type": "integer",
-                                "description": "Timeout in seconds in range 1..120. Defaults to 60. Command is killed when it exceeds the timeout"
-                            }
+                "strict": false,
+                "name": "bash",
+                "description": "Run a shell command via `bash -c ...`. Returns combined stdout+stderr plus exit code. If the output is too long, it will save full output to temp file and leave a mark `|Omitted N lines(s)|` in the result, use `read` tool to read it if you need to.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "shell command to run"
                         },
-                        "required": ["command"]
-                    }
+                        "cwd": {
+                            "type": "string",
+                            "description": "Working directory to run the command in. Omitted or empty uses the current directory"
+                        },
+                        "timeout": {
+                            "type": "integer",
+                            "description": "Timeout in seconds in range 1..120. Defaults to 60. Command is killed when it exceeds the timeout"
+                        }
+                    },
+                    "required": ["command"]
                 }
             }
         }

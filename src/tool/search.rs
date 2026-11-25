@@ -34,39 +34,38 @@ impl Tool for SearchTool {
         serde_json::json! {
             {
                 "type": "function",
-                "function": {
-                    "name": WebToolKind::Search.as_str(),
-                    "description": "Search the web for live information. Supports site:, -site:, lang:, after:, before:, and quoted phrases. Returns raw JSON with a results array (empty if no matches). Each result contains title, url, snippet (short summary), summary (long summary), content (page content; empty when need_content is false or content is unavailable), rerank_score (relevance from 0 to 3; higher is better), authority (integer from 0 to 4; higher is more authoritative, -1 means unknown), site_name, site_icon, and date (RFC 3339 publication time). site_name, site_icon, and date may be null.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "query": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 128
-                            },
-                            "count": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "maximum": 15,
-                                "description": "Number of results (default 5)"
-                            },
-                            "ori_question": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 128,
-                                "description": "Original question to improve query understanding"
-                            },
-                            "need_content": {
-                                "type": "boolean",
-                                "description": "Include page content in results (default false)"
-                            }
+                "strict": false,
+                "name": WebToolKind::Search.as_str(),
+                "description": "Search the web for live information. Supports site:, -site:, lang:, after:, before:, and quoted phrases. Returns raw JSON with a results array (empty if no matches). Each result contains title, url, snippet (short summary), summary (long summary), content (page content; empty when need_content is false or content is unavailable), rerank_score (relevance from 0 to 3; higher is better), authority (integer from 0 to 4; higher is more authoritative, -1 means unknown), site_name, site_icon, and date (RFC 3339 publication time). site_name, site_icon, and date may be null.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
                         },
-                        "required": [
-                            "query"
-                        ],
-                        "additionalProperties": false
-                    }
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 15,
+                            "description": "Number of results (default 5)"
+                        },
+                        "ori_question": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "description": "Original question to improve query understanding"
+                        },
+                        "need_content": {
+                            "type": "boolean",
+                            "description": "Include page content in results (default false)"
+                        }
+                    },
+                    "required": [
+                        "query"
+                    ],
+                    "additionalProperties": false
                 }
             }
         }

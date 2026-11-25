@@ -21,34 +21,29 @@ impl Tool for FetchTool {
     }
 
     fn json(&self) -> serde_json::Value {
-        serde_json::json! {
-                {
-                    "type": "function",
-                    "function": {
-                        "name": WebToolKind::Fetch.as_str(),
-        "description": "Fetch one or more web pages (up to 20). Returns a JSON array with one object per URL, each containing url, and either title (string; empty when unavailable) and content (string containing the page content as Markdown), or error (string) when that URL failed.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "urls": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "maxLength": 8192,
-                                        "description": "HTTP or HTTPS URL with a host and no username or password"
-                                    },
-                                    "minItems": 1,
-                                    "maxItems": 20
-                                }
-                            },
-                            "required": [
-                                "urls"
-                            ],
-                            "additionalProperties": false
-                        }
+        serde_json::json! {{
+            "type": "function",
+            "strict": false,
+            "name": WebToolKind::Fetch.as_str(),
+            "description": "Fetch one or more web pages (up to 20). Returns a JSON array with one object per URL, each containing url, either title (string; empty when unavailable) and content (string containing the page content as Markdown), or error (string) when that URL failed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "urls": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "maxLength": 8192,
+                            "description": "HTTP or HTTPS URL with a host and no username or password"
+                        },
+                        "minItems": 1,
+                        "maxItems": 20
                     }
-                }
+                },
+                "required": ["urls"],
+                "additionalProperties": false
             }
+        }}
     }
 
     fn call(&mut self, args: &str) -> anyhow::Result<String> {

@@ -1,58 +1,40 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
+use serde_json::Value;
+use std::{collections::BTreeSet, fs};
 
-use crate::{assembler, compaction, xdg::get_session_path};
+use crate::{
+    compaction,
+    responses::{self, InputItem, Item, ProviderPreferences, Role, Status},
+    xdg::get_session_path,
+};
 
-const TOOL_CHOICE_AUTO: &str = "auto";
 const SESSION_VERSION: u32 = 1;
 
-#[derive(Serialize)]
 pub struct Chat {
     model: String,
-    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
-    providers: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    providers: Option<ProviderPreferences>,
     service_tier: Option<&'static str>,
-    #[serde(flatten)]
-    reasoning: Reasoning,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<serde_json::Value>,
-    tool_choice: &'static str,
-    stream: bool,
-    #[serde(rename = "messages", serialize_with = "serialize_active_messages")]
+    reasoning_effort: &'static str,
+    tools: Vec<Value>,
     pub session: Session,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cache_control: Option<CacheControl>,
 }
 
 impl Chat {
     pub fn new(
         model: &str,
-        providers: serde_json::Value,
+        providers: Option<ProviderPreferences>,
         service_tier: Option<&'static str>,
         reasoning_effort: &'static str,
-        tools: Vec<serde_json::Value>,
+        tools: Vec<Value>,
         system: &str,
     ) -> Self {
-        let reasoning = if providers.is_null() {
-            Reasoning::OpenCode { reasoning_effort }
-        } else {
-            Reasoning::Other {
-                reasoning: Effort {
-                    effort: reasoning_effort,
-                },
-            }
-        };
         Self {
             model: model.into(),
             providers,
             service_tier,
-            reasoning,
+            reasoning_effort,
             tools,
-            tool_choice: TOOL_CHOICE_AUTO,
-            stream: true,
             session: Session::new_system(system),
-            cache_control: cache_control(model),
         }
     }
 
@@ -60,33 +42,144 @@ impl Chat {
         &self.model
     }
 
-    pub fn set_model(&mut self, model: &crate::cmd::OpenRouterModel, providers: serde_json::Value) {
+    pub fn set_model(
+        &mut self,
+        model: &crate::cmd::OpenRouterModel,
+        providers: Option<ProviderPreferences>,
+    ) {
         self.model = model.model().into();
         self.providers = providers;
         self.service_tier = model.service_tier();
-        self.cache_control = cache_control(&self.model);
     }
 
     pub fn reasoning(&self) -> &str {
-        match &self.reasoning {
-            Reasoning::OpenCode { reasoning_effort } => reasoning_effort,
-            Reasoning::Other { reasoning } => reasoning.effort,
-        }
+        self.reasoning_effort
     }
 
     pub fn set_reasoning(&mut self, effort: &'static str) {
-        match &mut self.reasoning {
-            Reasoning::OpenCode { reasoning_effort } => *reasoning_effort = effort,
-            Reasoning::Other { reasoning } => reasoning.effort = effort,
-        }
+        self.reasoning_effort = effort;
     }
 
-    pub fn providers(&self) -> &serde_json::Value {
-        &self.providers
+    pub fn providers(&self) -> Option<&ProviderPreferences> {
+        self.providers.as_ref()
     }
 
     pub fn service_tier(&self) -> Option<&'static str> {
         self.service_tier
+    }
+
+    pub fn input(&self, messages: &[Message]) -> Vec<InputItem> {
+        let mut input = Vec::new();
+        for message in messages {
+            match message {
+                Message::System(message) => input.push(InputItem::Message {
+                    role: Role::System,
+                    content: message.content.clone(),
+                }),
+                Message::User(message) => input.push(InputItem::Message {
+                    role: Role::User,
+                    content: message.content.clone(),
+                }),
+                Message::Assistant(assistant) => {
+                    if let Some(output) = &assistant.output
+                        && output.model == self.model
+                        && output.provider == self.providers
+                    {
+                        input.extend(output.items.iter().cloned().map(InputItem::Item));
+                    } else {
+                        if let Some(content) = &assistant.content {
+                            input.push(InputItem::Message {
+                                role: Role::Assistant,
+                                content: content.clone(),
+                            });
+                        }
+                        for call in &assistant.tool_calls {
+                            input.push(InputItem::Item(Item::FunctionCall(
+                                responses::FunctionCall {
+                                    id: None,
+                                    status: None,
+                                    call_id: call.id.clone(),
+                                    name: call.name().to_owned(),
+                                    arguments: call.arguments().to_owned(),
+                                },
+                            )));
+                        }
+                    }
+                }
+                Message::Tool(tool) => input.push(InputItem::Item(Item::FunctionCallOutput {
+                    call_id: tool.tool_call_id.clone(),
+                    output: tool.content.clone(),
+                })),
+            }
+        }
+        input
+    }
+
+    pub fn payload(
+        &self,
+        input: Vec<InputItem>,
+        stream: bool,
+        with_tools: bool,
+    ) -> responses::Request<'_> {
+        let tools = (with_tools && !self.tools.is_empty()).then_some(self.tools.as_slice());
+        responses::Request {
+            model: &self.model,
+            input,
+            stream,
+            store: false,
+            include: ["reasoning.encrypted_content"],
+            reasoning: responses::ReasoningSettings {
+                effort: self.reasoning_effort,
+                summary: (stream && self.reasoning_effort != "none").then_some("auto"),
+            },
+            provider: self.providers().filter(|p| !p.order.is_empty()),
+            service_tier: self.service_tier,
+            cache_control: self
+                .model
+                .starts_with("anthropic/")
+                .then_some(responses::CacheControl::Ephemeral),
+            tools,
+            tool_choice: tools.map(|_| {
+                if stream {
+                    responses::ToolChoice::Auto
+                } else {
+                    responses::ToolChoice::None
+                }
+            }),
+            max_output_tokens: None,
+        }
+    }
+
+    pub fn assistant_message(&self, items: Vec<Item>) -> anyhow::Result<AssistantMessage> {
+        let mut ids = BTreeSet::new();
+        let mut calls = Vec::new();
+        for item in &items {
+            let Item::FunctionCall(call) = item else {
+                continue;
+            };
+            let id = call.call_id.as_str();
+            anyhow::ensure!(!id.is_empty(), "missing function call ID");
+            anyhow::ensure!(!call.name.is_empty(), "missing function name");
+            anyhow::ensure!(ids.insert(id), "duplicate function call ID {id}");
+            anyhow::ensure!(
+                call.status.is_none_or(|status| status == Status::Completed),
+                "unfinished function call {id}"
+            );
+            calls.push(ToolCall {
+                id: id.into(),
+                function: ToolCallFunction {
+                    name: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                },
+            });
+        }
+        let mut message = AssistantMessage::new(responses::output_text(&items, true), calls);
+        message.output = Some(ResponseOutput {
+            model: self.model.clone(),
+            provider: self.providers.clone(),
+            items,
+        });
+        Ok(message)
     }
 
     pub fn request(
@@ -95,7 +188,7 @@ impl Chat {
         url: &str,
     ) -> reqwest::blocking::RequestBuilder {
         let request = client.post(url);
-        if self.providers.is_null()
+        if self.providers.is_none()
             && let Some(id) = &self.session.opencode_session
         {
             request.header("X-Opencode-Session", id)
@@ -133,25 +226,6 @@ impl Chat {
         self.session = session;
         Ok(())
     }
-}
-
-#[derive(Serialize)]
-struct CacheControl {
-    #[serde(rename = "type")]
-    type_: &'static str,
-}
-
-fn cache_control(model: &str) -> Option<CacheControl> {
-    model
-        .starts_with("anthropic/")
-        .then_some(CacheControl { type_: "ephemeral" })
-}
-
-fn serialize_active_messages<S>(session: &Session, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    session.active_messages().serialize(serializer)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -324,24 +398,12 @@ pub struct Compaction {
     pub message_count_at_compaction: usize,
     pub tokens_before: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub usage: Option<crate::completions::Usage>,
+    pub usage: Option<responses::Usage>,
     #[serde(default)]
     pub read_files: std::collections::BTreeSet<String>,
     #[serde(default)]
     pub modified_files: std::collections::BTreeSet<String>,
     pub timestamp: u64,
-}
-
-#[derive(Serialize)]
-#[serde(untagged)]
-enum Reasoning {
-    OpenCode { reasoning_effort: &'static str },
-    Other { reasoning: Effort },
-}
-
-#[derive(Serialize)]
-struct Effort {
-    effort: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -364,6 +426,23 @@ impl Message {
                 let mut tokens = OVERHEAD;
                 if let Some(content) = &message.content {
                     tokens += compaction::estimate_text_tokens(content);
+                }
+                if let Some(output) = &message.output {
+                    tokens += output
+                        .items
+                        .iter()
+                        .filter_map(|item| match item {
+                            Item::Reasoning { content, .. } => content.as_ref(),
+                            _ => None,
+                        })
+                        .flatten()
+                        .map(|part| match part {
+                            responses::ReasoningPart::ReasoningText { text }
+                            | responses::ReasoningPart::SummaryText { text } => {
+                                compaction::estimate_text_tokens(text)
+                            }
+                        })
+                        .sum::<u64>();
                 }
                 for call in &message.tool_calls {
                     tokens += 8
@@ -399,6 +478,15 @@ pub struct AssistantMessage {
     content: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    output: Option<ResponseOutput>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ResponseOutput {
+    model: String,
+    provider: Option<ProviderPreferences>,
+    items: Vec<Item>,
 }
 
 impl AssistantMessage {
@@ -406,6 +494,7 @@ impl AssistantMessage {
         Self {
             content,
             tool_calls,
+            output: None,
         }
     }
 
@@ -421,9 +510,6 @@ impl AssistantMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolCall {
     id: String,
-    #[serde(rename = "type")]
-    type_: String,
-    index: usize,
     function: ToolCallFunction,
 }
 
@@ -438,20 +524,6 @@ impl ToolCall {
 
     pub fn arguments(&self) -> &str {
         &self.function.arguments
-    }
-}
-
-impl From<&assembler::ToolCall> for ToolCall {
-    fn from(value: &assembler::ToolCall) -> Self {
-        Self {
-            id: value.id.clone(),
-            type_: value.type_.clone(),
-            index: value.index,
-            function: ToolCallFunction {
-                name: value.function.clone(),
-                arguments: value.arguments.clone(),
-            },
-        }
     }
 }
 

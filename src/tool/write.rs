@@ -21,23 +21,22 @@ impl Tool for WriteTool {
         serde_json::json! {
             {
                 "type": "function",
-                "function": {
-                    "name": "write",
-                    "description": "Write a file, replacing it entirely (creating it if needed). Parent directories are created automatically.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "path to the file"
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "full new contents of the file"
-                            }
+                "strict": false,
+                "name": "write",
+                "description": "Write a file, replacing it entirely (creating it if needed). Parent directories are created automatically.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "path to the file"
                         },
-                        "required": ["path", "content"]
-                    }
+                        "content": {
+                            "type": "string",
+                            "description": "full new contents of the file"
+                        }
+                    },
+                    "required": ["path", "content"]
                 }
             }
         }

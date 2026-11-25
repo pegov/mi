@@ -11,12 +11,10 @@ use crossterm::{ExecutableCommand, event::DisableBracketedPaste, terminal::disab
 use reqwest::Url;
 use serde::Deserialize;
 
-mod assembler;
 mod chan;
 mod chat;
 mod cmd;
 mod compaction;
-mod completions;
 mod copy;
 mod credits;
 mod event;
@@ -25,18 +23,18 @@ mod jev;
 mod log;
 mod mcp;
 mod printer;
+mod responses;
 mod skill;
 mod tool;
 mod tui;
 mod xdg;
 
 use crate::{
-    assembler::Assembler,
     cmd::{Cli, OpenCodeModel, OpenCodeReasoning, OpenRouterModel, OpenRouterReasoning},
-    completions::{Answer, FinishReason},
     event::{HandleEventsAction, handle_events},
     mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
     printer::Cursor,
+    responses::{Event, InputItem, ItemKind, ProviderPreferences, Response, Role, Status},
     skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
     tool::Tool,
     tui::Tui,
@@ -201,8 +199,8 @@ fn update_status(
         cursor.to_string(session).trim_end_matches("\n> "),
         chat.model(),
         chat.reasoning(),
-        chat.providers()["order"][0]
-            .as_str()
+        chat.providers()
+            .and_then(|providers| providers.order.first())
             .map_or_else(String::new, |provider| format!(" [{provider}]")),
         model_modalities.map_or_else(String::new, |modalities| format!(" ({modalities})")),
     );
@@ -253,29 +251,22 @@ fn compact(
             preparation.spans.len()
         };
         for index in 0..summary_requests {
-            let mut request;
-            let request_tokens;
-            if settings.cache_aware {
+            let (input, request_tokens) = if settings.cache_aware {
+                let mut messages = chat.session.active_messages();
                 let summarized_messages = preparation.spans.iter().map(Vec::len).sum::<usize>()
                     + usize::from(preparation.previous_summary.is_some());
-                let mut prompt = compaction::summary_prompt(None, Some(instructions), None);
-                prompt.push_str(&format!(
-                    "\nSummarize only the first {summarized_messages} messages after the system message \
-                     in the conversation above, including any previous summary. \
-                     Later messages will be retained verbatim; do not summarize them.\n"
-                ));
-                request_tokens = session
-                    .estimate_context(chat.session.estimate_active_tokens() + tool_tokens)
-                    + compaction::estimate_text_tokens(&prompt)
+                messages.truncate(1 + summarized_messages);
+                let prompt = compaction::summary_prompt(None, Some(instructions), None);
+                let request_tokens = session.estimate_context(
+                    messages
+                        .iter()
+                        .map(chat::Message::estimate_tokens)
+                        .sum::<u64>()
+                        + tool_tokens,
+                ) + compaction::estimate_text_tokens(&prompt)
                     + 64;
-                request = serde_json::to_value(&*chat)?;
-                request["messages"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(serde_json::json!({
-                        "role": "user", "content": prompt,
-                    }));
-                request["stream"] = serde_json::json!(false);
+                messages.push(chat::Message::User(chat::SimpleMessage::new(&prompt)));
+                (chat.input(&messages), request_tokens)
             } else {
                 let transcript =
                     compaction::serialize_conversation(&chat.session, &preparation.spans[index]);
@@ -284,20 +275,22 @@ fn compact(
                     Some(instructions),
                     Some(&transcript),
                 );
-                request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
-                request = compaction::summary_request(
-                    chat.model(),
-                    chat.providers(),
-                    chat.service_tier(),
-                    &prompt,
-                );
-            }
+                let request_tokens = compaction::estimate_text_tokens(&prompt) + 64;
+                (
+                    vec![InputItem::Message {
+                        role: Role::User,
+                        content: prompt,
+                    }],
+                    request_tokens,
+                )
+            };
+            let mut request = chat.payload(input, false, settings.cache_aware);
             let max_tokens =
                 match compaction::summary_budget(max_context, output_limit, request_tokens) {
                     Ok(value) => value,
                     Err(error) => return Ok(CompactionOutcome::Failed(error.to_string())),
                 };
-            request["max_tokens"] = serde_json::json!(max_tokens);
+            request.max_output_tokens = Some(max_tokens);
 
             let (tx, rx) = mpsc::channel();
             let request = chat.request(client, url).json(&request);
@@ -319,7 +312,7 @@ fn compact(
             };
             if let Some(ref reported) = result.usage {
                 session.save_usage(reported);
-                completions::Usage::accumulate(&mut usage, reported);
+                responses::Usage::accumulate(&mut usage, reported);
             }
             previous_summary = Some(match result.text {
                 Ok(text) => text,
@@ -478,7 +471,7 @@ fn run_chat(
     mut output_limit: Option<u64>,
     compaction_config: Option<CompactionConfig>,
     credits_gateway: Option<&str>,
-    chat_gateway: &str,
+    responses_url: &str,
     system_prompt_presets: &[String],
     opts: ChatOptions,
 ) -> anyhow::Result<()> {
@@ -565,11 +558,7 @@ fn run_chat(
     }));
 
     tui.write(&draw_banner("NEW SESSION STARTED"))?;
-    let mut providers = if opts.opencode {
-        serde_json::Value::Null
-    } else {
-        model.provider()
-    };
+    let mut providers = (!opts.opencode).then(|| model.provider());
     let mut model_modalities = None;
     if let Some(url) = &opts.models_url {
         if let Some(model_id) = opts.model {
@@ -609,7 +598,7 @@ fn run_chat(
             }
         } else {
             let (info, selected_providers) = get_model_info(&client, url, &model, &mut tui)?;
-            providers = selected_providers;
+            providers = Some(selected_providers);
             max_context = Some(info.limits.context_length);
             output_limit = info.limits.output.max_completion_tokens;
             model_modalities = Some(info.architecture.to_status());
@@ -702,7 +691,7 @@ fn run_chat(
                         } else {
                             new_model.provider()
                         };
-                        chat.set_model(&new_model, providers);
+                        chat.set_model(&new_model, Some(providers));
                         settings = new_settings;
                         Ok(())
                     })();
@@ -790,7 +779,7 @@ fn run_chat(
             let outcome = compact(
                 &mut chat,
                 &client,
-                chat_gateway,
+                responses_url,
                 &mut tui,
                 &settings,
                 max_context,
@@ -819,7 +808,7 @@ fn run_chat(
                 if !auto_compact(
                     &mut chat,
                     &client,
-                    chat_gateway,
+                    responses_url,
                     &mut tui,
                     &settings,
                     max_context,
@@ -836,9 +825,12 @@ fn run_chat(
                 tui.draw()?;
                 let mut raw_log_writer = log::create_sse_log()?;
 
-                let mut a = Assembler::default();
-
-                let request = chat.request(&client, chat_gateway).json(&chat).build()?;
+                let input = chat.input(&chat.session.active_messages());
+                let payload = chat.payload(input, true, true);
+                let request = chat
+                    .request(&client, responses_url)
+                    .json(&payload)
+                    .build()?;
                 let thread_client = client.clone();
                 let (tx, rx) = mpsc::channel();
                 thread::spawn(move || {
@@ -858,9 +850,8 @@ fn run_chat(
                 if !res.status().is_success() {
                     let status = res.status();
                     let body = res.text().unwrap_or_default();
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body)
-                        && let Ok(usage) =
-                            serde_json::from_value::<completions::Usage>(value["usage"].clone())
+                    if let Ok(response) = serde_json::from_str::<Response>(&body)
+                        && let Some(usage) = response.usage
                     {
                         session.save_usage(&usage);
                     }
@@ -868,7 +859,7 @@ fn run_chat(
                         let outcome = compact(
                             &mut chat,
                             &client,
-                            chat_gateway,
+                            responses_url,
                             &mut tui,
                             &settings,
                             max_context,
@@ -899,97 +890,121 @@ fn run_chat(
                     }
                 });
 
-                let mut finish_reason = None;
+                let mut terminal = None;
+                let mut reported_usage = None;
                 let mut stream_error = None;
+                let mut streamed_text = String::new();
+                let mut data = String::new();
                 while let Some(line) = tui.recv(&rx)? {
-                    let line = line?;
-
-                    writeln!(raw_log_writer, "{}", line)?;
-                    raw_log_writer.flush()?;
-
-                    let line = line.trim();
-
-                    if line.is_empty() {
-                        continue;
-                    }
-
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data == "[DONE]" {
+                    let line = match line {
+                        Ok(line) => line,
+                        Err(error) => {
+                            stream_error = Some(error.to_string());
                             break;
                         }
+                    };
+                    writeln!(raw_log_writer, "{line}")?;
+                    raw_log_writer.flush()?;
 
-                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(data) {
-                            if let Ok(usage) =
-                                serde_json::from_value::<completions::Usage>(value["usage"].clone())
-                            {
-                                session.save_usage(&usage);
-                                let estimated = chat.session.estimate_active_tokens() + tool_tokens;
-                                if estimated > 0 && usage.prompt_tokens > 0 {
-                                    session.context_ratio =
-                                        (usage.prompt_tokens as f64 / estimated as f64).max(1.0);
-                                }
-                            }
-                            if !value["error"].is_null() {
-                                stream_error = Some(value["error"].to_string());
-                                break;
-                            }
-                        }
-
-                        match serde_json::from_str::<Answer>(data) {
-                            Ok(v) => {
-                                status!();
-                                let Some(choice) = v.choices.first() else {
-                                    tui.draw()?;
-                                    continue;
-                                };
-
-                                a.push_delta(&v);
-
-                                if let Some(ref reasoning) = choice.delta.reasoning
-                                    && !reasoning.is_empty()
-                                    && show_reasoning
-                                {
-                                    tui.activity = Some("Thinking");
-                                    tui.print(printer::Mode::Reasoning, reasoning)?;
-                                }
-
-                                if let Some(ref content) = choice.delta.content
-                                    && !content.is_empty()
-                                {
-                                    tui.activity = Some("Generating");
-                                    tui.print(printer::Mode::Content, content)?;
-                                }
-
-                                if choice
-                                    .delta
-                                    .tool_calls
-                                    .as_ref()
-                                    .is_some_and(|calls| !calls.is_empty())
-                                {
-                                    tui.activity = Some("Tool-calling");
-                                }
-
-                                if choice.finish_reason.is_some() {
-                                    finish_reason = choice.finish_reason.clone();
-                                }
-
-                                if let Some(
-                                    FinishReason::Stop
-                                    | FinishReason::ToolCalls
-                                    | FinishReason::Length,
-                                ) = choice.finish_reason
-                                {
-                                    tui.finish()?;
-                                } else {
-                                    tui.draw()?;
-                                }
-                            }
-                            Err(e) => {
-                                tui.finish()?;
-                                tui.write(&format!("Failed to parse json: {e}\n"))?;
-                            }
-                        }
+                    if let Some(part) = line.strip_prefix("data:") {
+                        data.push_str(part.strip_prefix(' ').unwrap_or(part));
+                        data.push('\n');
                     }
+                    if !line.is_empty() || data.is_empty() {
+                        continue;
+                    }
+                    if data.trim() == "[DONE]" {
+                        break;
+                    }
+                    let event: Event = match serde_json::from_str(&data) {
+                        Ok(event) => event,
+                        Err(error) => {
+                            stream_error = Some(format!("invalid stream JSON: {error}"));
+                            break;
+                        }
+                    };
+                    data.clear();
+
+                    match event {
+                        Event::TextDelta { delta } => {
+                            tui.activity = Some("Generating");
+                            tui.print(printer::Mode::Content, &delta)?;
+                            streamed_text.push_str(&delta);
+                        }
+                        Event::ReasoningDelta { delta } if show_reasoning => {
+                            tui.activity = Some("Thinking");
+                            tui.print(printer::Mode::Reasoning, &delta)?;
+                        }
+                        Event::ItemAdded { item }
+                            if matches!(item.kind, ItemKind::FunctionCall) =>
+                        {
+                            tui.activity = Some("Tool-calling");
+                            tui.draw()?;
+                        }
+                        Event::Finished { mut response } => {
+                            reported_usage = response.usage.take();
+                            terminal = Some(response);
+                            break;
+                        }
+                        Event::Error {
+                            error,
+                            details,
+                            usage,
+                        } => {
+                            stream_error = Some(match error {
+                                Some(error) => error.to_string(),
+                                None => details.to_string(),
+                            });
+                            reported_usage = usage;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some(usage) = reported_usage {
+                    session.save_usage(&usage);
+                    let estimated = chat.session.estimate_active_tokens() + tool_tokens;
+                    if estimated > 0 && usage.input_tokens > 0 {
+                        session.context_ratio =
+                            (usage.input_tokens as f64 / estimated as f64).max(1.0);
+                    }
+                }
+                let mut truncated = false;
+                let items = if let Some(response) = terminal {
+                    let reason = response
+                        .incomplete_details
+                        .as_ref()
+                        .map(|details| details.reason.as_str());
+                    truncated = response.status == Some(Status::Incomplete)
+                        && reason == Some("max_output_tokens");
+                    stream_error = if let Some(error) = response.error {
+                        Some(error.to_string())
+                    } else if response.status == Some(Status::Completed)
+                        && response.output.is_none()
+                    {
+                        Some("completed response did not contain output items".into())
+                    } else if response.status != Some(Status::Completed) && !truncated {
+                        Some(format!(
+                            "response ended with status {:?}: {}",
+                            response.status,
+                            reason.unwrap_or("no details")
+                        ))
+                    } else {
+                        None
+                    };
+                    response.output.unwrap_or_default()
+                } else {
+                    stream_error
+                        .get_or_insert_with(|| "stream ended without a terminal response".into());
+                    Vec::new()
+                };
+                if let Some(text) = responses::output_text(&items, true)
+                    && let Some(rest) = text.strip_prefix(&streamed_text)
+                    && !rest.is_empty()
+                {
+                    tui.print(printer::Mode::Content, rest)?;
+                    streamed_text = text;
                 }
 
                 if let Some(credits_gateway) = credits_gateway {
@@ -1002,44 +1017,21 @@ fn run_chat(
                 tui.finish()?;
 
                 if let Some(message) = stream_error {
-                    let am = a.assemble();
-                    if am.content.as_deref().is_some_and(|c| !c.is_empty())
-                        || !am.tool_calls.is_empty()
-                    {
+                    if !streamed_text.is_empty() {
                         let start = chat.session.messages.len();
-                        let tool_calls = am
-                            .tool_calls
-                            .iter()
-                            .map(chat::ToolCall::from)
-                            .collect::<Vec<_>>();
-                        let failed = am
-                            .tool_calls
-                            .iter()
-                            .map(|call| {
-                                chat::Tool::new(
-                                    call.id.clone(),
-                                    "Tool call abandoned: the response failed.".into(),
-                                )
-                            })
-                            .collect::<Vec<_>>();
                         chat.session.messages.push(chat::Message::Assistant(
-                            chat::AssistantMessage::new(am.content, tool_calls),
+                            chat::AssistantMessage::new(Some(streamed_text), vec![]),
                         ));
-                        chat.session
-                            .messages
-                            .extend(failed.into_iter().map(chat::Message::Tool));
-                        chat.session
-                            .omitted
-                            .push((start, chat.session.messages.len()));
+                        chat.session.omitted.push((start, start + 1));
                         chat.save_session()?;
                     }
                     status!();
-                    let overflow = compaction::is_overflow_message(&message.to_lowercase());
+                    let overflow = compaction::is_overflow_message(&message);
                     if overflow && !recovery_used {
                         let outcome = compact(
                             &mut chat,
                             &client,
-                            chat_gateway,
+                            responses_url,
                             &mut tui,
                             &settings,
                             max_context,
@@ -1061,29 +1053,18 @@ fn run_chat(
                     anyhow::bail!("API error: {message}");
                 }
 
-                let am = a.assemble();
-
-                let content = am.content.clone();
-
-                let mut tools: Vec<chat::Tool> = Vec::with_capacity(am.tool_calls.len());
-                let mut chat_tool_calls: Vec<chat::ToolCall> =
-                    Vec::with_capacity(am.tool_calls.len());
-
-                let truncated = matches!(finish_reason, Some(FinishReason::Length));
-
-                for tool_call in am.tool_calls.iter() {
+                let assistant_message = if truncated {
+                    let content = (!streamed_text.is_empty()).then_some(streamed_text);
+                    chat::AssistantMessage::new(content, vec![])
+                } else {
+                    chat.assistant_message(items)?
+                };
+                let mut tools = Vec::with_capacity(assistant_message.tool_calls().len());
+                for tool_call in assistant_message.tool_calls() {
                     tui.activity = Some("Tool-calling");
-                    tui.tool(&tool_call.function, &tool_call.arguments)?;
-
-                    chat_tool_calls.push(chat::ToolCall::from(tool_call));
-
-                    if truncated {
-                        tools.push(chat::Tool::new(
-                            tool_call.id.clone(),
-                            "Tool call abandoned: the response was truncated.".into(),
-                        ));
-                    } else if let Some(tool_impl) = tool_registry.get(&tool_call.function) {
-                        let arguments = tool_call.arguments.clone();
+                    tui.tool(tool_call.name(), tool_call.arguments())?;
+                    if let Some(tool_impl) = tool_registry.get(tool_call.name()) {
+                        let arguments = tool_call.arguments().to_owned();
                         let result = tui
                             .run(move |cancelled| match tool_impl.try_lock() {
                                 Ok(mut tool_impl) => {
@@ -1094,23 +1075,20 @@ fn run_chat(
                                 }
                             })?
                             .unwrap_or_else(|e| format!("failed to call tool: {e}"));
-                        if show_tool_output
-                            && !matches!(tool_call.function.as_str(), "search" | "fetch")
-                        {
+                        if show_tool_output && !matches!(tool_call.name(), "search" | "fetch") {
                             tui.print(printer::Mode::Content, &result)?;
                         }
                         tui.finish()?;
-                        tools.push(chat::Tool::new(tool_call.id.clone(), result));
+                        tools.push(chat::Tool::new(tool_call.id().to_owned(), result));
                     } else {
                         tools.push(chat::Tool::new(
-                            tool_call.id.clone(),
+                            tool_call.id().to_owned(),
                             "Wrong tool name! Tool not found!".into(),
                         ));
                     }
                 }
 
                 let attempt_start = chat.session.messages.len();
-                let assistant_message = chat::AssistantMessage::new(content, chat_tool_calls);
                 chat.session
                     .messages
                     .push(chat::Message::Assistant(assistant_message));
@@ -1137,7 +1115,7 @@ fn run_chat(
                     let outcome = compact(
                         &mut chat,
                         &client,
-                        chat_gateway,
+                        responses_url,
                         &mut tui,
                         &settings,
                         max_context,
@@ -1281,7 +1259,7 @@ fn get_model_info(
     url: &str,
     model: &OpenRouterModel,
     tui: &mut Tui,
-) -> anyhow::Result<(ModelInfo, serde_json::Value)> {
+) -> anyhow::Result<(ModelInfo, ProviderPreferences)> {
     let model_id = model.model();
     let client = client.clone();
     let url = url.to_owned();
@@ -1341,7 +1319,7 @@ fn get_model_info(
             .any(|endpoint| endpoint.tag.as_deref() == Some(provider))
         {
             let mut providers = model.provider();
-            providers["order"] = serde_json::json!([provider]);
+            providers.order = vec![provider.to_owned()];
             return Ok((info, providers));
         }
         tui.write(&format!(
@@ -1422,7 +1400,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
             let profile =
                 config.load_profile(chat.profile.as_deref(), chat.system_prompt_preset)?;
             let base_url = config.local.base_url;
-            let chat_completions_url = format!("{base_url}/chat/completions");
+            let responses_url = format!("{}/responses", base_url.trim_end_matches('/'));
 
             let opts = ChatOptions {
                 opencode: false,
@@ -1459,7 +1437,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 config.compaction,
                 None,
-                &chat_completions_url,
+                &responses_url,
                 &profile.spp,
                 opts,
             )?;
@@ -1478,7 +1456,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 })?
                 .base_url;
             let base_url = base_url.trim_end_matches('/');
-            let chat_completions_url = format!("{base_url}/v1/chat/completions");
+            let responses_url = format!("{base_url}/v1/responses");
             let model = match model {
                 OpenCodeModel::DeepSeekFlash => "deepseek-v4.1-flash",
                 OpenCodeModel::Glm => "glm-5.3",
@@ -1537,7 +1515,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 config.compaction,
                 None,
-                &chat_completions_url,
+                &responses_url,
                 &profile.spp,
                 opts,
             )?;
@@ -1554,7 +1532,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                     anyhow::anyhow!("deepseek requires deepseek.base_url in config.json")
                 })?
                 .base_url;
-            let chat_completions_url = format!("{base_url}/chat/completions");
+            let responses_url = format!("{}/responses", base_url.trim_end_matches('/'));
             let credits_url = format!("{base_url}/user/balance");
             println!(
                 "DeepSeek | model: deepseek-flash | reasoning: {}",
@@ -1582,7 +1560,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 config.compaction,
                 Some(&credits_url),
-                &chat_completions_url,
+                &responses_url,
                 &profile.spp,
                 opts,
             )?;
@@ -1606,7 +1584,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 model.service_tier().unwrap_or("default"),
             );
             let base_url = config.openrouter.base_url;
-            let chat_completions_url = format!("{base_url}/chat/completions");
+            let responses_url = format!("{}/responses", base_url.trim_end_matches('/'));
             let credits_url = format!("{base_url}/credits");
 
             if matches!(model, OpenRouterModel::None) {
@@ -1649,7 +1627,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 None,
                 config.compaction,
                 Some(&credits_url),
-                &chat_completions_url,
+                &responses_url,
                 &profile.spp,
                 opts,
             )?
