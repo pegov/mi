@@ -52,7 +52,8 @@ pub fn handle_events(
                     (KeyCode::Char('e'), modifiers)
                         if modifiers.contains(KeyModifiers::CONTROL) =>
                     {
-                        tui.terminal.show_cursor()?;
+                        let terminal = tui.terminal.as_mut().unwrap();
+                        terminal.show_cursor()?;
                         io::stdout().execute(event::PopKeyboardEnhancementFlags)?;
                         io::stdout().execute(event::DisableBracketedPaste)?;
                         disable_raw_mode()?;
@@ -62,7 +63,7 @@ pub fn handle_events(
                             KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
                         ))?;
                         io::stdout().execute(event::EnableBracketedPaste)?;
-                        tui.terminal.clear()?;
+                        terminal.clear()?;
                         *user_prompt = result?;
                     }
                     (KeyCode::Enter, modifiers) if modifiers.contains(KeyModifiers::SHIFT) => {

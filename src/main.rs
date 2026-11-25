@@ -540,6 +540,7 @@ fn run_chat(
             .to_string(&session)
             .trim_end_matches("\n> ")
             .to_owned(),
+        oneshot.is_none(),
     )?;
 
     tui.model_switching = opts.model.is_none();
@@ -1342,37 +1343,35 @@ fn reset_terminal() {
 
 fn main() -> anyhow::Result<()> {
     let cli = cmd::Cli::parse();
-    match cli.command {
-        cmd::Command::McpServer => {}
-        _ => {
-            let default_hook = std::panic::take_hook();
-            std::panic::set_hook(Box::new(move |panic_info| {
-                reset_terminal();
-                default_hook(panic_info);
-            }));
-
-            ctrlc::set_handler(move || {
-                reset_terminal();
-                println!();
-                std::process::exit(130);
-            })
-            .expect("failed to set ctrlc");
+    let reset = match &cli.command {
+        cmd::Command::McpServer => return start(cli),
+        cmd::Command::Local { chat }
+        | cmd::Command::OpenRouter { chat, .. }
+        | cmd::Command::DeepSeek { chat, .. }
+        | cmd::Command::OpenCode { chat, .. } => chat.oneshot.is_none(),
+        _ => true,
+    };
+    if reset {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            reset_terminal();
+            default_hook(panic_info);
+        }));
+    }
+    ctrlc::set_handler(move || {
+        if reset {
+            reset_terminal();
+            println!();
         }
-    }
+        std::process::exit(130);
+    })
+    .expect("failed to set ctrlc");
 
-    match cli.command {
-        cmd::Command::McpServer => start(cli),
-        _ => match start(cli) {
-            Ok(_) => {
-                reset_terminal();
-                Ok(())
-            }
-            Err(e) => {
-                reset_terminal();
-                Err(e)
-            }
-        },
+    let result = start(cli);
+    if reset {
+        reset_terminal();
     }
+    result
 }
 
 fn start(cli: Cli) -> anyhow::Result<()> {

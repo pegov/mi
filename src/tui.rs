@@ -1,5 +1,5 @@
 use std::{
-    io,
+    io::{self, Write},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -30,7 +30,7 @@ use crate::{
 };
 
 pub struct Tui {
-    pub terminal: DefaultTerminal,
+    pub terminal: Option<DefaultTerminal>,
     pub prompt: String,
     pub status: String,
     pub accepting_input: bool,
@@ -42,6 +42,7 @@ pub struct Tui {
     pub commands_dismissed: bool,
     started: Instant,
     buffer: String,
+    line_open: bool,
     mode: Mode,
     style: Style,
     code_delimiter: usize,
@@ -118,11 +119,20 @@ fn wrap_lines(
 }
 
 impl Tui {
-    pub fn new(status: String) -> anyhow::Result<Self> {
-        let terminal = ratatui::try_init_with_options(TerminalOptions {
-            viewport: Viewport::Inline(3),
-        })?;
-        let tui = Self {
+    pub fn new(status: String, interactive: bool) -> anyhow::Result<Self> {
+        let terminal = if interactive {
+            let terminal = ratatui::try_init_with_options(TerminalOptions {
+                viewport: Viewport::Inline(3),
+            })?;
+            io::stdout().execute(event::PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
+            ))?;
+            io::stdout().execute(event::EnableBracketedPaste)?;
+            Some(terminal)
+        } else {
+            None
+        };
+        Ok(Self {
             terminal,
             prompt: String::new(),
             status,
@@ -145,15 +155,11 @@ impl Tui {
             commands_dismissed: false,
             started: Instant::now(),
             buffer: String::new(),
+            line_open: false,
             mode: Mode::None,
             style: Style::default(),
             code_delimiter: 0,
-        };
-        io::stdout().execute(event::PushKeyboardEnhancementFlags(
-            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-        ))?;
-        io::stdout().execute(event::EnableBracketedPaste)?;
-        Ok(tui)
+        })
     }
 
     pub fn command_matches(&self) -> Vec<(&str, &str)> {
@@ -196,12 +202,16 @@ impl Tui {
     }
 
     pub fn draw(&mut self) -> anyhow::Result<()> {
+        if self.terminal.is_none() {
+            return Ok(());
+        }
         io::stdout().sync_update(|_| self.draw_inner())?
     }
 
     fn draw_inner(&mut self) -> anyhow::Result<()> {
-        self.terminal.autoresize()?;
-        let size = self.terminal.size()?;
+        let terminal = self.terminal.as_mut().unwrap();
+        terminal.autoresize()?;
+        let size = terminal.size()?;
         let text = if self.accepting_input {
             format!("> {}", self.prompt)
         } else if let Some(activity) = self.activity {
@@ -261,18 +271,19 @@ impl Tui {
             .collect();
         let height =
             (dynamic.len() + input.len() + menu_height + 1).min(usize::from(size.height)) as u16;
-        let area = self.terminal.get_frame().area();
+        let terminal = self.terminal.as_mut().unwrap();
+        let area = terminal.get_frame().area();
         if area.height != height {
-            self.terminal.clear()?;
-            self.terminal.set_cursor_position((area.x, area.y))?;
-            self.terminal = DefaultTerminal::with_options(
+            terminal.clear()?;
+            terminal.set_cursor_position((area.x, area.y))?;
+            *terminal = DefaultTerminal::with_options(
                 ratatui::backend::CrosstermBackend::new(io::stdout()),
                 TerminalOptions {
                     viewport: Viewport::Inline(height),
                 },
             )?;
         }
-        self.terminal.draw(|frame| {
+        terminal.draw(|frame| {
             let [content, prompt, dropdown, status] = Layout::vertical([
                 Constraint::Min(1),
                 Constraint::Length(input.len().min(usize::from(u16::MAX)) as u16),
@@ -302,6 +313,9 @@ impl Tui {
     }
 
     pub fn recv<T>(&mut self, rx: &Receiver<T>) -> anyhow::Result<Option<T>> {
+        if self.terminal.is_none() {
+            return Ok(rx.recv().ok());
+        }
         loop {
             if event::poll(Duration::ZERO)?
                 && let Event::Key(key) = event::read()?
@@ -336,19 +350,29 @@ impl Tui {
     }
 
     pub fn write(&mut self, text: &str) -> anyhow::Result<()> {
+        if self.terminal.is_none() {
+            let mut stdout = io::stdout().lock();
+            stdout.write_all(text.as_bytes())?;
+            stdout.flush()?;
+            if !text.is_empty() {
+                self.line_open = !text.ends_with('\n');
+            }
+            return Ok(());
+        }
         io::stdout().sync_update(|_| {
-            self.terminal.autoresize()?;
+            let terminal = self.terminal.as_mut().unwrap();
+            terminal.autoresize()?;
             for part in text.split_inclusive('\n') {
                 if let Some(line) = part.strip_suffix('\n') {
                     self.buffer.push_str(line);
                     let lines = wrap_lines(
                         &self.buffer,
-                        self.terminal.size()?.width,
+                        terminal.size()?.width,
                         self.style,
                         (self.mode == Mode::Content).then_some(&mut self.code_delimiter),
                     );
                     for chunk in lines.chunks(usize::from(u16::MAX)) {
-                        self.terminal.insert_before(chunk.len() as u16, |buf| {
+                        terminal.insert_before(chunk.len() as u16, |buf| {
                             Paragraph::new(chunk.to_vec()).render(buf.area, buf);
                         })?;
                     }
@@ -362,7 +386,7 @@ impl Tui {
     }
 
     pub fn flush(&mut self) -> anyhow::Result<()> {
-        if !self.buffer.is_empty() {
+        if self.line_open || !self.buffer.is_empty() {
             self.write("\n")?;
         }
         Ok(())
@@ -402,8 +426,11 @@ impl Tui {
 impl Drop for Tui {
     fn drop(&mut self) {
         let _ = self.finish();
-        let _ = self.terminal.clear();
-        let _ = self.terminal.show_cursor();
+        let Some(terminal) = &mut self.terminal else {
+            return;
+        };
+        let _ = terminal.clear();
+        let _ = terminal.show_cursor();
         let _ = io::stdout().execute(event::PopKeyboardEnhancementFlags);
         let _ = io::stdout().execute(event::DisableBracketedPaste);
         let _ = disable_raw_mode();
