@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::responses::FunctionOutput;
+
 use super::{
     Tool,
     common::{WebToolKind, web_request},
@@ -46,7 +48,7 @@ impl Tool for FetchTool {
         }}
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         let args: FetchArgs = serde_json::from_str(args)?;
         anyhow::ensure!(!args.urls.is_empty(), "urls must not be empty");
         anyhow::ensure!(
@@ -73,6 +75,6 @@ impl Tool for FetchTool {
             }
             results.push(value);
         }
-        Ok(serde_json::to_string(&results)?)
+        Ok(FunctionOutput::Text(serde_json::to_string(&results)?))
     }
 }

@@ -2,6 +2,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::responses::FunctionOutput;
+
 use super::{Tool, format_lines};
 
 #[derive(Deserialize)]
@@ -47,16 +49,16 @@ impl Tool for Tail {
         }
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         let args: TailArgs = serde_json::from_str(args)?;
         let content = std::fs::read_to_string(Path::new(&args.path))?;
         let lines: Vec<&str> = content.lines().collect();
         let count = args.lines.unwrap_or(10);
         let start = lines.len() - count.min(lines.len());
-        Ok(format_lines(
+        Ok(FunctionOutput::Text(format_lines(
             &lines[start..],
             start + 1,
             args.show_line_numbers.unwrap_or(false),
-        ))
+        )))
     }
 }

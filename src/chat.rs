@@ -451,7 +451,16 @@ impl Message {
                 }
                 tokens
             }
-            Self::Tool(tool) => OVERHEAD + 8 + compaction::estimate_text_tokens(&tool.content),
+            Self::Tool(tool) => {
+                OVERHEAD
+                    + 8
+                    + match &tool.content {
+                        responses::FunctionOutput::Text(text) => {
+                            compaction::estimate_text_tokens(text)
+                        }
+                        responses::FunctionOutput::Parts(parts) => 1024 * parts.len() as u64,
+                    }
+            }
         }
     }
 }
@@ -536,11 +545,11 @@ pub struct ToolCallFunction {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Tool {
     tool_call_id: String,
-    content: String,
+    content: responses::FunctionOutput,
 }
 
 impl Tool {
-    pub fn new(tool_call_id: String, content: String) -> Self {
+    pub fn new(tool_call_id: String, content: responses::FunctionOutput) -> Self {
         Self {
             tool_call_id,
             content,
@@ -548,6 +557,6 @@ impl Tool {
     }
 
     pub fn content(&self) -> &str {
-        &self.content
+        self.content.display_text()
     }
 }

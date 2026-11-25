@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::responses::FunctionOutput;
+
 use super::{
     Tool,
     common::{WebToolKind, web_request},
@@ -71,9 +73,10 @@ impl Tool for SearchTool {
         }
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         let args: SearchArgs = serde_json::from_str(args)?;
         anyhow::ensure!(args.count <= 15, "count must be <= 15, got {}", args.count);
         web_request(&self.client, &self.base_url, WebToolKind::Search, &args)
+            .map(FunctionOutput::Text)
     }
 }

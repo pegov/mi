@@ -1,3 +1,5 @@
+use crate::responses::FunctionOutput;
+
 pub fn format_lines(lines: &[&str], first_line: usize, numbered: bool) -> String {
     let mut output = String::new();
     for (offset, line) in lines.iter().enumerate() {
@@ -16,12 +18,12 @@ pub fn format_lines(lines: &[&str], first_line: usize, numbered: bool) -> String
 pub trait Tool {
     fn name(&self) -> &str;
     fn json(&self) -> serde_json::Value;
-    fn call(&mut self, args: &str) -> anyhow::Result<String>;
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput>;
     fn call_cancellable(
         &mut self,
         args: &str,
         cancelled: &std::sync::atomic::AtomicBool,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<FunctionOutput> {
         if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
             return Err(std::io::Error::from(std::io::ErrorKind::Interrupted).into());
         }

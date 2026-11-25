@@ -3,6 +3,8 @@ use std::{fs, path::Path};
 use serde::Deserialize;
 use similar::TextDiff;
 
+use crate::responses::FunctionOutput;
+
 use super::Tool;
 
 #[derive(Deserialize)]
@@ -54,26 +56,28 @@ impl Tool for EditTool {
         }
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         let args: EditToolArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
         let content = fs::read_to_string(path)?;
         let count = content.matches(&args.old_string).count();
 
         if count == 0 {
-            return Ok("old_string not found in file".into());
+            return Ok(FunctionOutput::Text("old_string not found in file".into()));
         }
 
         if !args.replace_all && count > 1 {
-            return Ok(format!(
+            return Ok(FunctionOutput::Text(format!(
                 "old_string occurs {} times; set replace_all=true to replace all or provide more context to disambiguate",
                 count,
-            ));
+            )));
         }
 
         let new_content = content.replace(&args.old_string, &args.new_string);
         if content == new_content {
-            return Ok("no changes made (old_string and new_string are identical)".into());
+            return Ok(FunctionOutput::Text(
+                "no changes made (old_string and new_string are identical)".into(),
+            ));
         }
 
         fs::write(path, &new_content)?;
@@ -81,6 +85,6 @@ impl Tool for EditTool {
         let diff = TextDiff::from_lines(&content, &new_content)
             .unified_diff()
             .to_string();
-        Ok(diff)
+        Ok(FunctionOutput::Text(diff))
     }
 }

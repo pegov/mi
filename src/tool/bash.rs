@@ -11,6 +11,8 @@ use std::{
 
 use serde::Deserialize;
 
+use crate::responses::FunctionOutput;
+
 use super::Tool;
 
 #[derive(Deserialize)]
@@ -68,11 +70,15 @@ impl Tool for BashTool {
         }
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         self.call_cancellable(args, &AtomicBool::new(false))
     }
 
-    fn call_cancellable(&mut self, args: &str, cancelled: &AtomicBool) -> anyhow::Result<String> {
+    fn call_cancellable(
+        &mut self,
+        args: &str,
+        cancelled: &AtomicBool,
+    ) -> anyhow::Result<FunctionOutput> {
         let args: BashToolArgs = serde_json::from_str(args)?;
         let timeout = args.timeout.unwrap_or(60);
         if !(1..=120).contains(&timeout) {
@@ -143,7 +149,7 @@ impl Tool for BashTool {
             format_output(None, exit_code, &stdout, &stderr)
         };
 
-        Ok(combined)
+        Ok(FunctionOutput::Text(combined))
     }
 }
 

@@ -83,7 +83,7 @@ pub enum Item {
     FunctionCall(FunctionCall),
     FunctionCallOutput {
         call_id: String,
-        output: String,
+        output: FunctionOutput,
     },
     Reasoning {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,6 +101,28 @@ pub enum Item {
         #[serde(skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum FunctionOutput {
+    Text(String),
+    Parts(Vec<FunctionOutputPart>),
+}
+
+impl FunctionOutput {
+    pub fn display_text(&self) -> &str {
+        match self {
+            Self::Text(text) => text,
+            Self::Parts(_) => "[Image attached]",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FunctionOutputPart {
+    InputImage { image_url: String, detail: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

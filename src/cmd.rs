@@ -32,6 +32,8 @@ pub struct ChatArgs {
     pub with_search: bool,
     #[arg(long, visible_alias = "rwt", help = "Enable read/write/edit tools")]
     pub rw_tools: bool,
+    #[arg(long, visible_alias = "imgt", help = "Enable the read_image tool")]
+    pub image_tool: bool,
     #[arg(
         long,
         value_enum,

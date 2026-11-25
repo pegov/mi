@@ -2,6 +2,8 @@ use std::{fs::File, io::Write, path::Path};
 
 use serde::Deserialize;
 
+use crate::responses::FunctionOutput;
+
 use super::Tool;
 
 #[derive(Deserialize)]
@@ -42,7 +44,7 @@ impl Tool for WriteTool {
         }
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         let args: WriteToolArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
         if let Some(parent) = path.parent() {
@@ -50,6 +52,6 @@ impl Tool for WriteTool {
         }
         let mut file = File::create(path)?;
         file.write_all(args.content.as_bytes())?;
-        Ok("ok".into())
+        Ok(FunctionOutput::Text("ok".into()))
     }
 }

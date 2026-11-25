@@ -34,7 +34,9 @@ use crate::{
     event::{HandleEventsAction, handle_events},
     mcp::{echo_server::echo_mcp_server, http_server::mcp_http_server, sync::SyncMcpClient},
     printer::Cursor,
-    responses::{Event, InputItem, ItemKind, ProviderPreferences, Response, Role, Status},
+    responses::{
+        Event, FunctionOutput, InputItem, ItemKind, ProviderPreferences, Response, Role, Status,
+    },
     skill::{Skill, format_skills, manually_invoke_skill, parse_skills},
     tool::Tool,
     tui::Tui,
@@ -173,6 +175,7 @@ struct ChatOptions {
     models_url: Option<String>,
     search_base_url: Option<String>,
     rw_tools: bool,
+    image_tool: bool,
 }
 
 fn compact_instructions(prompt: &str) -> Option<&str> {
@@ -521,6 +524,9 @@ fn run_chat(
     } else {
         make_tools![bash_tool]
     };
+    if opts.image_tool {
+        tool_registry.push(Box::new(tool::ReadImage));
+    }
     if let Some(base_url) = opts.search_base_url {
         tool_registry.push(Box::new(tool::SearchTool {
             base_url: base_url.clone(),
@@ -587,6 +593,9 @@ fn run_chat(
                 let info: OpenCodeModelInfo = serde_json::from_value(model_data)?;
                 max_context = info.limit.context.filter(|&tokens| tokens > 0);
                 output_limit = info.limit.output.filter(|&tokens| tokens > 0);
+                if let Some(modalities) = info.modalities {
+                    model_modalities = Some(modalities.to_status());
+                }
             } else {
                 let info: DeepSeekModelInfo = serde_json::from_value(model_data)?;
                 max_context = info.context_window.filter(|&tokens| tokens > 0);
@@ -1075,16 +1084,18 @@ fn run_chat(
                                     anyhow::bail!("tool is still busy from an interrupted call")
                                 }
                             })?
-                            .unwrap_or_else(|e| format!("failed to call tool: {e}"));
+                            .unwrap_or_else(|e| {
+                                FunctionOutput::Text(format!("failed to call tool: {e}"))
+                            });
                         if show_tool_output && !matches!(tool_call.name(), "search" | "fetch") {
-                            tui.print(printer::Mode::Content, &result)?;
+                            tui.print(printer::Mode::Content, result.display_text())?;
                         }
                         tui.finish()?;
                         tools.push(chat::Tool::new(tool_call.id().to_owned(), result));
                     } else {
                         tools.push(chat::Tool::new(
                             tool_call.id().to_owned(),
-                            "Wrong tool name! Tool not found!".into(),
+                            FunctionOutput::Text("Wrong tool name! Tool not found!".into()),
                         ));
                     }
                 }
@@ -1171,6 +1182,7 @@ fn run_chat(
 #[derive(Deserialize)]
 struct OpenCodeModelInfo {
     limit: OpenCodeModelLimits,
+    modalities: Option<ModelArchitecture>,
 }
 
 #[derive(Deserialize)]
@@ -1197,33 +1209,32 @@ struct ModelInfo {
 
 #[derive(Debug, Deserialize)]
 struct ModelArchitecture {
-    #[serde(default)]
+    #[serde(default, alias = "input")]
     input_modalities: Vec<String>,
-    #[serde(default)]
+    #[serde(default, alias = "output")]
     output_modalities: Vec<String>,
 }
 
 impl ModelArchitecture {
     fn to_status(&self) -> String {
-        let mut first_part = Vec::new();
-        let mut second_part = Vec::new();
-        for value in self.input_modalities.iter() {
-            match value.as_str() {
-                "text" => first_part.push("T"),
-                "image" => first_part.push("I"),
-                _ => {}
+        let badge = |modalities: &[String]| {
+            let mut badge = String::new();
+            if modalities
+                .iter()
+                .any(|value| value == "image" || value.starts_with("image/"))
+            {
+                badge.push('I');
             }
-        }
-
-        for value in self.output_modalities.iter() {
-            match value.as_str() {
-                "text" => second_part.push("T"),
-                "image" => second_part.push("I"),
-                _ => {}
+            if modalities.iter().any(|value| value == "text") {
+                badge.push('T');
             }
-        }
-
-        format!("{} -> {}", first_part.join(""), second_part.join(""))
+            badge
+        };
+        format!(
+            "{} -> {}",
+            badge(&self.input_modalities),
+            badge(&self.output_modalities)
+        )
     }
 }
 
@@ -1411,6 +1422,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 show_reasoning: chat.show_reasoning,
                 show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
+                image_tool: chat.image_tool,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {
@@ -1454,8 +1466,8 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                     anyhow::anyhow!("opencode requires opencode.base_url in config.json")
                 })?
                 .base_url;
-            let base_url = base_url.trim_end_matches('/');
-            let responses_url = format!("{base_url}/v1/responses");
+            let base_url = format!("{}/inference/go/openai/v1", base_url.trim_end_matches('/'));
+            let responses_url = format!("{base_url}/responses");
             let model = match model {
                 OpenCodeModel::DeepSeekFlash => "deepseek-v4.1-flash",
                 OpenCodeModel::Glm => "glm-5.3",
@@ -1489,6 +1501,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 show_reasoning: chat.show_reasoning,
                 show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
+                image_tool: chat.image_tool,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {
@@ -1504,7 +1517,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 } else {
                     None
                 },
-                models_url: Some(format!("{base_url}/v1/models")),
+                models_url: Some(format!("{base_url}/models")),
             };
 
             run_chat(
@@ -1548,6 +1561,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 show_reasoning: chat.show_reasoning,
                 show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
+                image_tool: chat.image_tool,
                 models_url: Some(format!("{base_url}/models")),
                 search_base_url: chat.with_search.then_some(base_url),
             };
@@ -1601,6 +1615,7 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 show_reasoning: chat.show_reasoning,
                 show_tool_output: chat.show_tool_output,
                 rw_tools: chat.rw_tools,
+                image_tool: chat.image_tool,
                 search_base_url: if chat.with_search {
                     Some(
                         match chat.search_provider {

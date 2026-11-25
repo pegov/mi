@@ -2,6 +2,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::responses::FunctionOutput;
+
 use super::{Tool, format_lines};
 
 #[derive(Deserialize)]
@@ -52,7 +54,7 @@ impl Tool for Read {
         }
     }
 
-    fn call(&mut self, args: &str) -> anyhow::Result<String> {
+    fn call(&mut self, args: &str) -> anyhow::Result<FunctionOutput> {
         let args: ReadArgs = serde_json::from_str(args)?;
         let path = Path::new(&args.path);
         let content = std::fs::read_to_string(path)?;
@@ -61,7 +63,7 @@ impl Tool for Read {
             && args.to_line.is_none()
             && !args.show_line_numbers.unwrap_or(false)
         {
-            return Ok(content);
+            return Ok(FunctionOutput::Text(content));
         }
         if args.from_line == Some(0) || args.to_line == Some(0) {
             anyhow::bail!("line numbers start at 1");
@@ -78,10 +80,10 @@ impl Tool for Read {
         let first = (start - 1).min(lines.len());
         let last = args.to_line.unwrap_or(lines.len()).min(lines.len());
         let selected = lines.get(first..last).unwrap_or(&[]);
-        Ok(format_lines(
+        Ok(FunctionOutput::Text(format_lines(
             selected,
             start,
             args.show_line_numbers.unwrap_or(false),
-        ))
+        )))
     }
 }
