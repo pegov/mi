@@ -951,7 +951,7 @@ fn run_chat(
                         Event::ItemAdded { item }
                             if matches!(item.kind, ItemKind::FunctionCall) =>
                         {
-                            tui.activity = Some("Tool-calling");
+                            tui.activity = Some("Tool-preparing");
                             tui.draw()?;
                         }
                         Event::Finished { mut response } => {
