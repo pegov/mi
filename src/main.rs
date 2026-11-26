@@ -781,7 +781,7 @@ fn run_chat(
             }
             continue;
         }
-        if user_prompt.is_empty() {
+        if user_prompt.is_empty() && tui.images.is_empty() {
             break;
         }
         if let Some(instructions) = compact_instructions(&user_prompt) {
@@ -808,9 +808,12 @@ fn run_chat(
             continue;
         }
         apply_skill(&skills, &mut user_prompt, &mut tui)?;
-        chat.session
-            .messages
-            .push(chat::Message::User(chat::SimpleMessage::new(&user_prompt)));
+        let mut message = chat::SimpleMessage::new(&user_prompt);
+        message.images = std::mem::take(&mut tui.images);
+        if !message.images.is_empty() {
+            tui.write(&format!("[{} image(s) attached]\n", message.images.len()))?;
+        }
+        chat.session.messages.push(chat::Message::User(message));
 
         let generation = (|| -> anyhow::Result<()> {
             let mut recovery_used = false;

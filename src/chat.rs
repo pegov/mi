@@ -76,6 +76,27 @@ impl Chat {
                     role: Role::System,
                     content: message.content.clone(),
                 }),
+                Message::User(message) if !message.images.is_empty() => {
+                    let mut content = Vec::new();
+                    if !message.content.is_empty() {
+                        content.push(responses::MessagePart::InputText {
+                            text: message.content.clone(),
+                        });
+                    }
+                    content.extend(message.images.iter().map(|url| {
+                        responses::MessagePart::InputImage {
+                            image_url: url.clone(),
+                            detail: "auto".into(),
+                        }
+                    }));
+                    input.push(InputItem::Item(Item::Message {
+                        id: None,
+                        role: Role::User,
+                        status: None,
+                        phase: None,
+                        content,
+                    }));
+                }
                 Message::User(message) => input.push(InputItem::Message {
                     role: Role::User,
                     content: message.content.clone(),
@@ -420,7 +441,9 @@ impl Message {
         const OVERHEAD: u64 = 4;
         match self {
             Self::System(message) | Self::User(message) => {
-                OVERHEAD + compaction::estimate_text_tokens(&message.content)
+                OVERHEAD
+                    + compaction::estimate_text_tokens(&message.content)
+                    + 1024 * message.images.len() as u64
             }
             Self::Assistant(message) => {
                 let mut tokens = OVERHEAD;
@@ -468,12 +491,15 @@ impl Message {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimpleMessage {
     content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 impl SimpleMessage {
     pub fn new(content: &str) -> Self {
         Self {
             content: content.into(),
+            images: Vec::new(),
         }
     }
 

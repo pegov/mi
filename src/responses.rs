@@ -146,6 +146,13 @@ pub enum ReasoningPart {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessagePart {
+    InputText {
+        text: String,
+    },
+    InputImage {
+        image_url: String,
+        detail: String,
+    },
     OutputText {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]

@@ -32,6 +32,8 @@ use crate::{
 pub struct Tui {
     pub terminal: Option<DefaultTerminal>,
     pub prompt: String,
+    pub images: Vec<String>,
+    pub image_menu: Option<String>,
     pub status: String,
     pub accepting_input: bool,
     pub activity: Option<&'static str>,
@@ -135,6 +137,8 @@ impl Tui {
         Ok(Self {
             terminal,
             prompt: String::new(),
+            images: Vec::new(),
+            image_menu: None,
             status,
             accepting_input: false,
             activity: None,
@@ -163,7 +167,11 @@ impl Tui {
     }
 
     pub fn command_matches(&self) -> Vec<(&str, &str)> {
-        if !self.accepting_input || self.commands_dismissed || !self.prompt.starts_with('/') {
+        if !self.accepting_input
+            || self.image_menu.is_some()
+            || self.commands_dismissed
+            || !self.prompt.starts_with('/')
+        {
             return Vec::new();
         }
         if let Some((command, arg)) = self.prompt.split_once(char::is_whitespace) {
@@ -212,8 +220,14 @@ impl Tui {
         let terminal = self.terminal.as_mut().unwrap();
         terminal.autoresize()?;
         let size = terminal.size()?;
-        let text = if self.accepting_input {
-            format!("> {}", self.prompt)
+        let text = if let Some(menu) = &self.image_menu {
+            menu.clone()
+        } else if self.accepting_input {
+            if self.images.is_empty() {
+                format!("> {}", self.prompt)
+            } else {
+                format!("[{} image(s)] > {}", self.images.len(), self.prompt)
+            }
         } else if let Some(activity) = self.activity {
             let spinner =
                 SPINNER[(self.started.elapsed().as_millis() / 50) as usize % SPINNER.len()];
@@ -237,7 +251,7 @@ impl Tui {
         let matches = self.command_matches();
         let available_height = usize::from(size.height);
         let available_height = available_height - (input.len() + 2).min(available_height);
-        let menu_height = if self.accepting_input {
+        let menu_height = if self.accepting_input && self.image_menu.is_none() {
             self.commands
                 .len()
                 .max(matches.len())
@@ -294,7 +308,11 @@ impl Tui {
             let offset = dynamic.len() - usize::from(content.height).min(dynamic.len());
             frame.render_widget(Paragraph::new(dynamic[offset..].to_vec()), content);
             let offset = input.len() - usize::from(prompt.height).min(input.len());
-            if self.accepting_input && prompt.width > 0 && prompt.height > 0 {
+            if self.accepting_input
+                && self.image_menu.is_none()
+                && prompt.width > 0
+                && prompt.height > 0
+            {
                 let x = input
                     .last()
                     .map_or(0, Line::width)

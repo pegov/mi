@@ -6,6 +6,62 @@ use std::{
 
 use base64::{Engine, engine::general_purpose};
 
+pub const MAX_IMAGE_MIB: usize = 20;
+pub const MAX_IMAGE_BYTES: usize = MAX_IMAGE_MIB * 1024 * 1024;
+
+pub fn mime_type(bytes: &[u8]) -> anyhow::Result<&'static str> {
+    Ok(match bytes {
+        [137, b'P', b'N', b'G', 13, 10, 26, 10, ..] => "image/png",
+        [255, 216, 255, ..] => "image/jpeg",
+        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => "image/gif",
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => "image/webp",
+        _ => anyhow::bail!("unsupported image format; expected PNG, JPEG, WebP, or GIF"),
+    })
+}
+
+pub fn parse_paste(mut text: String) -> anyhow::Result<String> {
+    text.retain(|c| !c.is_ascii_whitespace());
+    let (declared_mime, encoded) = if let Some(url) = text.strip_prefix("data:") {
+        let (mime, encoded) = url
+            .split_once(";base64,")
+            .ok_or_else(|| anyhow::anyhow!("expected a base64 image data URL"))?;
+        (Some(mime), encoded)
+    } else {
+        (None, text.as_str())
+    };
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .or_else(|_| general_purpose::STANDARD_NO_PAD.decode(encoded))
+        .map_err(|_| anyhow::anyhow!("invalid base64"))?;
+    anyhow::ensure!(
+        bytes.len() <= MAX_IMAGE_BYTES,
+        "image exceeds {MAX_IMAGE_MIB} MiB"
+    );
+    let mime = mime_type(&bytes)?;
+    anyhow::ensure!(
+        declared_mime.is_none_or(|declared| declared == mime),
+        "data URL type does not match the image"
+    );
+    Ok(format!(
+        "data:{mime};base64,{}",
+        general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
 pub fn generate_image(
     gateway: &str,
     model: String,

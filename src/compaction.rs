@@ -260,6 +260,9 @@ pub fn serialize_conversation(session: &Session, indices: &[usize]) -> String {
             Message::User(message) => {
                 text.push_str("[User]: ");
                 text.push_str(message.content());
+                if !message.images.is_empty() {
+                    text.push_str(&format!(" [{} image(s) attached]", message.images.len()));
+                }
                 text.push('\n');
             }
             Message::Assistant(assistant) => {
