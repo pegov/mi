@@ -25,6 +25,7 @@ mod mcp;
 mod printer;
 mod responses;
 mod skill;
+mod stt;
 mod tool;
 mod tui;
 mod xdg;
@@ -1358,7 +1359,7 @@ fn reset_terminal() {
 fn main() -> anyhow::Result<()> {
     let cli = cmd::Cli::parse();
     let reset = match &cli.command {
-        cmd::Command::McpServer => return start(cli),
+        cmd::Command::McpServer | cmd::Command::SttServer { .. } => return start(cli),
         cmd::Command::Local { chat }
         | cmd::Command::OpenRouter { chat, .. }
         | cmd::Command::DeepSeek { chat, .. }
@@ -1668,6 +1669,9 @@ fn start(cli: Cli) -> anyhow::Result<()> {
                 &output_dir,
                 &input_reference_path,
             )?;
+        }
+        cmd::Command::SttServer { host, port, model } => {
+            stt::serve(&host, port, model, &config.openrouter.base_url)?;
         }
         cmd::Command::Chan => chan::chan()?,
         cmd::Command::Jev => {

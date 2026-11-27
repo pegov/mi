@@ -151,6 +151,18 @@ pub enum Command {
         #[arg(long, num_args = 1..)]
         input_reference_path: Vec<String>,
     },
+    #[command(
+        about = "Transcribe audio at POST /audio/transcriptions",
+        long_about = "Transcribe audio at POST /audio/transcriptions. Send JSON with input_audio.data (base64) and input_audio.format, or one multipart field named 'file'. Supported formats: WAV, MP3, FLAC, M4A, and WebM. M4A and WebM require ffmpeg. The server has no authentication; bind only on trusted networks."
+    )]
+    SttServer {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 4300)]
+        port: u16,
+        #[arg(short, long, value_enum, default_value = "mai")]
+        model: SttModel,
+    },
     Chan,
     Jev,
     #[command(name = "mcp-http-server")]
@@ -159,6 +171,11 @@ pub enum Command {
     McpServer,
     #[command(name = "mcp-client")]
     McpClient,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum SttModel {
+    Mai,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, ValueEnum)]
